@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پیداکننده IP تمیز — نسخه پیشرفته</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+
+        <!-- ==================== HEADER ==================== -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <div class="brand-text">
+                    <h1 data-i18n="app.title">پیداکننده IP تمیز</h1>
+                    <p data-i18n="app.subtitle">تست چندمرحله‌ای هوشمند برای Cloudflare</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="lang-btn" class="lang-btn" onclick="toggleLang()" title="Switch Language">
+                    <span id="lang-icon">🌐</span>
+                    <span id="lang-text">EN</span>
+                </button>
+                <div class="header-badges">
+                    <div class="header-badge" data-i18n="badge.tls">🚀 تست سریع TLS</div>
+                    <div class="header-badge indigo" data-i18n="badge.xray">🎯 اعتبارسنجی Xray</div>
+                </div>
+            </div>
+        </header>
+
+        <main>
+
+            <!-- ==================== STEP 1: CONFIG ==================== -->
+            <section class="card">
+                <div class="card-header">
+                    <span class="step-badge">۱</span>
+                    <h2 data-i18n="step1.title">تنظیمات اسکن</h2>
+                    <span class="card-desc" data-i18n="step1.desc">حالت پیش‌فرض برای اکثر کاربران کافیه</span>
+                </div>
+
+                <!-- Presets -->
+                <div class="presets" role="tablist">
+                    <button class="preset" data-preset="fast" type="button">
+                        <span class="preset-icon">⚡</span>
+                        <span data-i18n="preset.fast">سریع</span>
+                        <span class="preset-desc" data-i18n="preset.fast.desc">۳۰ ثانیه</span>
+                    </button>
+                    <button class="preset active" data-preset="balanced" type="button">
+                        <span class="preset-icon">⚖️</span>
+                        <span data-i18n="preset.balanced">متعادل</span>
+                        <span class="preset-desc" data-i18n="preset.balanced.desc">توصیه‌شده</span>
+                    </button>
+                    <button class="preset" data-preset="deep" type="button">
+                        <span class="preset-icon">🔍</span>
+                        <span data-i18n="preset.deep">عمیق</span>
+                        <span class="preset-desc" data-i18n="preset.deep.desc">دقیق‌تر</span>
+                    </button>
+                </div>
+
+                <!-- Essential settings -->
+                <div class="settings-grid">
+                    <div class="setting">
+                        <label for="max-latency">
+                            <span class="label-icon">⏱</span>
+                            <span data-i18n="set.maxLat">حداکثر تاخیر</span>
+                            <span class="label-hint">ms</span>
+                        </label>
+                        <input type="number" id="max-latency" value="800" min="50" max="5000">
+                    </div>
+                    <div class="setting">
+                        <label for="samples">
+                            <span class="label-icon">🎯</span>
+                            <span data-i18n="set.samples">تعداد نمونه</span>
+                            <span class="label-hint" data-i18n="set.samples.hint">از هر رنج</span>
+                        </label>
+                        <input type="number" id="samples" value="100" min="1" max="500">
+                    </div>
+                    <div class="setting">
+                        <label for="timeout">
+                            <span class="label-icon">⏳</span>
+                            <span data-i18n="set.timeout">تایم‌اوت</span>
+                            <span class="label-hint" data-i18n="unit.sec">ثانیه</span>
+                        </label>
+                        <input type="number" id="timeout" value="2" min="0.5" max="30" step="0.5">
+                    </div>
+                    <div class="setting">
+                        <label for="workers">
+                            <span class="label-icon">⚙️</span>
+                            <span data-i18n="set.workers">تعداد ترد</span>
+                            <span class="label-hint" data-i18n="set.workers.hint">خودکار</span>
+                        </label>
+                        <input type="number" id="workers" placeholder="خودکار (بهینه)" data-i18n-placeholder="ph.workers" min="1" max="2000">
+                    </div>
+                </div>
+
+                <!-- Config textarea -->
+                <div class="field">
+                    <label for="v2ray-config">
+                        <span class="label-icon">🔗</span>
+                        <span data-i18n="set.config">کانفیگ V2Ray</span>
+                        <span class="label-hint" data-i18n="opt">اختیاری</span>
+                    </label>
+                    <textarea id="v2ray-config" rows="3"
+                        placeholder="vless://uuid@example.com:443?type=ws&security=tls&sni=example.com&path=/path#MyConfig&#10;vmess://eyJ2IjoiMiIsInBzIjoi...&#10;trojan://password@example.com:443#TrojanName"></textarea>
+                    <div class="field-hint">
+                        <span>💡</span>
+                        <span data-i18n="hint.config">IPهای تمیز در این کانفیگ‌ها جای‌گذاری می‌شن. پشتیبانی از: VLESS، VMess، Trojan، Shadowsocks</span>
+                    </div>
+                </div>
+
+                <!-- Advanced settings -->
+                <details class="advanced">
+                    <summary data-i18n="adv.title">تنظیمات پیشرفته</summary>
+                    <div class="advanced-body">
+
+                        <!-- Test host -->
+                        <div class="field">
+                            <label for="test-host">
+                                <span class="label-icon">🌐</span>
+                                <span data-i18n="set.sni">دامنه تست (SNI)</span>
+                                <span class="label-hint" data-i18n="set.sni.hint">خودکار از کانفیگ</span>
+                            </label>
+                            <input type="text" id="test-host" placeholder="خالی بگذارید → خودکار از کانفیگ" data-i18n-placeholder="ph.sni" dir="ltr">
+                            <div class="field-hint">
+                                <span>🔍</span>
+                                <span data-i18n="hint.sni">اگه خالی باشه، ابزار خودش SNI سالم پیدا می‌کنه.</span>
+                            </div>
+                        </div>
+
+                        <!-- Ports -->
+                        <div class="field">
+                            <label>
+                                <span class="label-icon">🔌</span>
+                                <span data-i18n="set.ports">پورت‌های تست</span>
+                                <span class="label-hint" data-i18n="hint.ports">سریع‌ترین انتخاب می‌شه</span>
+                            </label>
+                            <div class="ports-grid">
+                                <label class="port-chip"><input type="checkbox" value="443" checked> 443</label>
+                                <label class="port-chip"><input type="checkbox" value="2053"> 2053</label>
+                                <label class="port-chip"><input type="checkbox" value="2083"> 2083</label>
+                                <label class="port-chip"><input type="checkbox" value="2087"> 2087</label>
+                                <label class="port-chip"><input type="checkbox" value="2096"> 2096</label>
+                                <label class="port-chip"><input type="checkbox" value="8443"> 8443</label>
+                            </div>
+                        </div>
+
+                        <!-- <span data-i18n="set.customDomain">Custom Domain</span> -->
+                        <div class="field">
+                            <label for="custom-domain">
+                                <span class="label-icon">🌐</span>
+                                <span data-i18n="set.customDomain">Custom Domain</span>
+                                <span class="label-hint" data-i18n="hint.customDomain.optional">اختیاری — ضد DPI</span>
+                            </label>
+                            <input type="text" id="custom-domain" placeholder="vpn.mydomain.com" dir="ltr">
+                            <div class="field-hint">
+                                <span>🛡️</span>
+                                <span data-i18n="hint.customDomain">اگه Worker خودت رو روی دامنه شخصی تنظیم کردی، اینجا بنویس تا workers.dev در کانفیگ نهایی جایگزین بشه.</span>
+                            </div>
+                        </div>
+
+                        <!-- Toggles -->
+                        <label class="toggle-row toggle-emerald">
+                            <input type="checkbox" id="only-xray" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🎯</span>
+                                    <span data-i18n="tog.onlyXray">فقط کانفیگ‌های تأییدشده با Xray</span>
+                                    <span class="auto-badge" id="onlyxray-auto-badge" data-i18n="badge.auto">🔒 خودکار</span>
+                                    <span class="need-badge hidden" id="onlyxray-need-badge" data-i18n="badge.needConfig">⚠️ نیاز به کانفیگ</span>
+                                </span>
+                                <span class="toggle-desc" id="onlyxray-toggle-desc" data-i18n="desc.onlyXray">فقط کانفیگ‌هایی نمایش داده می‌شن که Xray تستشون رو پاس کرده.</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-indigo">
+                            <input type="checkbox" id="smart-fragment">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🧩</span>
+                                    <span data-i18n="tog.fragment">Smart Fragment</span>
+                                    <span class="auto-badge" title="بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود" data-i18n="badge.auto" data-i18n-title="badge.auto.title">🔒 خودکار</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.fragment">برای عبور از DPI ایران. اگه روشن باشه، fragment خودکار به تست‌های Xray اضافه می‌شه.</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-indigo" id="xray-toggle-row">
+                            <input type="checkbox" id="use-xray" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🔬</span>
+                                    <span data-i18n="tog.useXray">فعال‌سازی تست Xray</span>
+                                    <span class="auto-badge" id="xray-auto-badge" data-i18n="badge.auto">🔒 خودکار</span>
+                                    <span class="need-badge hidden" id="xray-need-badge" data-i18n="badge.needConfig">⚠️ نیاز به کانفیگ</span>
+                                </span>
+                                <span class="toggle-desc" id="xray-toggle-desc">اعتبارسنجی نهایی با Xray. اگه خاموش باشه، فقط تست TLS و کیفیت انجام می‌شه (سریع‌تر).</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-emerald">
+                            <input type="checkbox" id="do-throughput">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🚀</span>
+                                    <span data-i18n="tog.speed">تست سرعت واقعی</span>
+                                    <span class="auto-badge" title="بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود" data-i18n="badge.auto" data-i18n-title="badge.auto.title">🔒 خودکار</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.speed">دانلود واقعی از Cloudflare Speed Test.</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-amber">
+                            <input type="checkbox" id="save-history">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">💾</span>
+                                    <span data-i18n="tog.saveHistory">ذخیره تاریخچه در فایل</span>
+                                    <span class="auto-badge" title="کنترل دستی" data-i18n="badge.manual" data-i18n-title="badge.manual.title">✋ دستی</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.saveHistory">اگه روشن باشه، تاریخچه IPهای موفق در cleanip_history.json ذخیره می‌شه. اگه خاموش باشه، هیچ فایلی ساخته یا تغییر نمی‌کنه.</span>
+                            </span>
+                        </label>
+
+                        <div class="field">
+                            <button type="button" id="clear-history-btn" class="btn-secondary" onclick="clearHistory()" style="width:100%;justify-content:center;">
+                                <span>🗑</span>
+                                <span data-i18n="btn.clearHistory">حذف تاریخچه</span>
+                            </button>
+                        </div>
+
+                        <label class="toggle-row toggle-emerald">
+                            <input type="checkbox" id="use-history">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🧠</span>
+                                    <span data-i18n="tog.history">استفاده از حافظه‌ی تاریخی</span>
+                                    <span class="auto-badge" title="بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود" data-i18n="badge.auto" data-i18n-title="badge.auto.title">🔒 خودکار</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.history">IPهایی که قبلاً موفق بودن رو اول تست کن.</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-amber">
+                            <input type="checkbox" id="use-ipv6">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🌐</span>
+                                    <span data-i18n="tog.ipv6">پشتیبانی IPv6</span>
+                                    <span class="auto-badge" title="بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود" data-i18n="badge.auto" data-i18n-title="badge.auto.title">🔒 خودکار</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.ipv6">تست IPهای IPv6 هم اضافه می‌شه.</span>
+                            </span>
+                        </label>
+
+                        <label class="toggle-row toggle-indigo">
+                            <input type="checkbox" id="use-ech">
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-content">
+                                <span class="toggle-title">
+                                    <span class="toggle-icon">🔐</span>
+                                    <span data-i18n="tog.ech">فعال‌سازی ECH</span>
+                                    <span class="auto-badge" title="بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود" data-i18n="badge.auto" data-i18n-title="badge.auto.title">🔒 خودکار</span>
+                                </span>
+                                <span class="toggle-desc" data-i18n="desc.ech">Encrypted Client Hello — SNI رو رمزنگاری می‌کنه.</span>
+                            </span>
+                        </label>
+
+                        <div class="field" id="ech-config-field" style="display:none;">
+                            <label for="ech-config">
+                                <span class="label-icon">🔑</span>
+                                <span data-i18n="set.ech">ECH Config List</span>
+                                <span class="label-hint">Base64</span>
+                            </label>
+                            <input type="text" id="ech-config" placeholder="ECH Config از Cloudflare" data-i18n-placeholder="ph.ech" dir="ltr">
+                            <div class="field-hint">
+                                <span>💡</span>
+                                <span data-i18n="hint.ech">از cloudflare.com/cdn-cgi/trace یا پنل Cloudflare بگیر.</span>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label for="top-xray">
+                                <span class="label-icon">🎯</span>
+                                <span data-i18n="set.topXray">تعداد IP برای تست Xray</span>
+                                <span class="label-hint">پیش‌فرض: 30</span>
+                            </label>
+                            <input type="number" id="top-xray" value="30" min="5" max="100">
+                            <div class="field-hint">
+                                <span>⚡</span>
+                                <span data-i18n="hint.topXray">هرچی بیشتر، دقیق‌تر ولی کندتر. توصیه: 30</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </details>
+            </section>
+
+            <!-- ==================== STEP 2: START ==================== -->
+            <section class="card">
+                <button id="scan-btn" class="btn-primary" onclick="startScan()">
+                    <span class="btn-icon">🚀</span>
+                    <span data-i18n="btn.start">شروع اسکن و ترکیب</span>
+                </button>
+            </section>
+
+            <!-- ==================== STATUS ==================== -->
+            <section id="status" class="card status-card hidden">
+                <div class="status-content">
+                    <div class="spinner"></div>
+                    <div style="flex:1;">
+                        <div class="status-text" id="status-text" data-i18n="status.scanning">در حال اسکن موازی...</div>
+                        <div class="status-hint" id="status-hint" data-i18n="status.wait">لطفاً صبر کنید — این فرایند ممکنه چند دقیقه طول بکشه</div>
+                    </div>
+                    <button id="cancel-btn" class="btn-secondary" onclick="cancelScan()" style="flex-shrink:0;">
+                        <span>⏹</span>
+                        <span data-i18n="btn.cancel">لغو</span>
+                    </button>
+                </div>
+
+                <div class="progress-bar-wrapper" style="margin: 1rem 0;">
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-stats">
+                        <span id="progress-percent">۰٪</span>
+                        <span id="progress-count">0 / 0</span>
+                        <span id="progress-elapsed">۰ ثانیه</span>
+                    </div>
+                </div>
+
+                <div class="progress-steps">
+                    <div class="progress-step active" data-step="1">
+                        <span class="progress-num">۱</span>
+                        <span class="progress-title" data-i18n="phase1">تست سریع TLS</span>
+                    </div>
+                    <div class="progress-step" data-step="2">
+                        <span class="progress-num">۲</span>
+                        <span class="progress-title" data-i18n="phase2">سنجش کیفیت</span>
+                    </div>
+                    <div class="progress-step" data-step="3">
+                        <span class="progress-num">۳</span>
+                        <span class="progress-title" data-i18n="phase3">اعتبارسنجی Xray</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== SUMMARY ==================== -->
+            <section id="summary" class="card hidden">
+                <div class="card-header">
+                    <span class="step-badge" style="background: linear-gradient(135deg, #10b981, #059669);">📊</span>
+                    <h2 data-i18n="summary.title">خلاصه نتایج</h2>
+                </div>
+                <div class="stats">
+                    <div class="stat blue">
+                        <span class="stat-icon">🔍</span>
+                        <span class="stat-value" id="stat-tested">0</span>
+                        <span class="stat-label" data-i18n="stat.tested">IP تست‌شده</span>
+                    </div>
+                    <div class="stat green">
+                        <span class="stat-icon">✅</span>
+                        <span class="stat-value" id="stat-alive">0</span>
+                        <span class="stat-label" data-i18n="stat.alive">IP تأییدشده</span>
+                    </div>
+                    <div class="stat purple">
+                        <span class="stat-icon">⏱</span>
+                        <span class="stat-value" id="stat-elapsed">0</span>
+                        <span class="stat-label" data-i18n="unit.sec">ثانیه</span>
+                    </div>
+                    <div class="stat orange">
+                        <span class="stat-icon">📡</span>
+                        <span class="stat-value" id="stat-ranges">0</span>
+                        <span class="stat-label" data-i18n="stat.ranges">رنج</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== RESULTS ==================== -->
+            <section id="results-section" class="card hidden">
+                <div class="results-header">
+                    <div class="results-title">
+                        <span>🏆</span>
+                        <span data-i18n="results.title">IPهای برتر</span>
+                        <span class="results-count" id="results-count">0</span>
+                    </div>
+                    <button class="copy-btn" onclick="copyIps()">
+                        <span>📋</span> <span data-i18n="btn.copyIps">کپی IPها</span>
+                    </button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th data-i18n="th.row">#</th>
+                                <th data-i18n="th.ip">آدرس IP</th>
+                                <th data-i18n="th.port">پورت</th>
+                                <th data-i18n="th.score">امتیاز</th>
+                                <th data-i18n="th.latency">تأخیر (ms)</th>
+                                <th data-i18n="th.jitter">Jitter</th>
+                                <th data-i18n="th.loss">افت بسته</th>
+                                <th data-i18n="th.xray">تونل Xray</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ==================== COMBINED ==================== -->
+            <section id="combined-section" class="card hidden">
+                <div class="results-header">
+                    <div class="results-title">
+                        <span>🔗</span>
+                        <span data-i18n="combined.title">کانفیگ‌های آماده</span>
+                        <span class="results-count" id="combined-count">0</span>
+                    </div>
+                    <div class="btn-group">
+                        <button class="copy-btn" onclick="copyAllCombined()">
+                            <span>📋</span> <span data-i18n="btn.copyAll">کپی همه</span>
+                        </button>
+                        <button class="copy-btn secondary" onclick="downloadCombined()">
+                            <span>💾</span> <span data-i18n="btn.downloadTxt">دانلود TXT</span>
+                        </button>
+                        <button class="copy-btn secondary" onclick="downloadCombined('clash')">
+                            <span>🎭</span> Clash
+                        </button>
+                        <button class="copy-btn secondary" onclick="downloadCombined('singbox')">
+                            <span>📦</span> Sing-box
+                        </button>
+                    </div>
+                </div>
+                <div class="combined-filter" id="combined-filter">
+                    <div class="cf-head">
+                        <span class="cf-icon">🔎</span>
+                        <span data-i18n="cf.title">فیلتر نتایج</span>
+                        <span class="cf-count" id="cf-count"></span>
+                        <span class="cf-hidden" id="cf-hidden"></span>
+                        <button class="cf-reset" onclick="resetCombinedFilter()" data-i18n="cf.reset">بازنشانی</button>
+                    </div>
+                    <div class="cf-body">
+                        <label class="cf-item">
+                            <input type="checkbox" id="cf-only-xray">
+                            <span>🎯</span>
+                            <span data-i18n="cf.onlyXray">فقط Xray موفق</span>
+                        </label>
+                        <label class="cf-item">
+                            <input type="checkbox" id="cf-zero-loss">
+                            <span>📉</span>
+                            <span data-i18n="cf.zeroLoss">فقط افت صفر</span>
+                        </label>
+                        <label class="cf-item">
+                            <input type="checkbox" id="cf-ipv4">
+                            <span>🌐</span>
+                            <span data-i18n="cf.ipv4">فقط IPv4</span>
+                        </label>
+                        <label class="cf-item">
+                            <input type="checkbox" id="cf-ipv6">
+                            <span>🌐</span>
+                            <span data-i18n="cf.ipv6">فقط IPv6</span>
+                        </label>
+                        <label class="cf-item cf-num">
+                            <span data-i18n="cf.maxLat">حداکثر تأخیر:</span>
+                            <input type="number" id="cf-max-lat" value="0" min="0" max="5000">
+                            <span class="cf-unit">ms</span>
+                        </label>
+                        <label class="cf-item cf-num">
+                            <span data-i18n="cf.minScore">حداقل امتیاز:</span>
+                            <input type="number" id="cf-min-score" value="0" min="0" max="100">
+                        </label>
+                        <label class="cf-item">
+                            <span data-i18n="cf.proto">پروتکل:</span>
+                            <select id="cf-proto">
+                                <option value="" data-i18n="cf.anyProto">همه</option>
+                                <option value="vless">VLESS</option>
+                                <option value="vmess">VMess</option>
+                                <option value="trojan">Trojan</option>
+                                <option value="ss">Shadowsocks</option>
+                            </select>
+                        </label>
+                        <label class="cf-item cf-search">
+                            <span>🔍</span>
+                            <input type="text" id="cf-search" placeholder="جستجو در IP / کانفیگ" data-i18n-placeholder="cf.searchPh" dir="ltr">
+                        </label>
+                    </div>
+                </div>
+                <div class="combined-list" id="combined-list"></div>
+            </section>
+
+            <!-- ==================== ERROR ==================== -->
+            <section id="error-section" class="card error-card hidden">
+                <div class="card-header">
+                    <span class="step-badge" style="background: linear-gradient(135deg, #ef4444, #dc2626);">!</span>
+                    <h2 data-i18n="error.title">خطا</h2>
+                </div>
+                <p id="error-text"></p>
+            </section>
+
+        </main>
+
+        <footer>
+            <p class="footer-brand" data-i18n="footer.text">⚡ CleanIP — بدون وابستگی خارجی • فقط کتابخانه استاندارد Go</p>
+        </footer>
+    </div>
+
+    <script>
+        // ==================== i18n ====================
+        const I18N = {
+            fa: {
+                'badge.auto': '🔒 خودکار',
+                'badge.auto.title': 'بر اساس حالت انتخاب‌شده خودکار تعیین می‌شود',
+                'badge.needConfig': '⚠️ نیاز به کانفیگ',
+                'app.title': 'پیداکننده IP تمیز',
+                'app.subtitle': 'تست چندمرحله‌ای هوشمند برای Cloudflare',
+                'badge.tls': '🚀 تست سریع TLS',
+                'badge.xray': '🎯 اعتبارسنجی Xray',
+                'step1.title': 'تنظیمات اسکن',
+                'step1.desc': 'حالت پیش‌فرض برای اکثر کاربران کافیه',
+                'preset.fast': 'سریع',
+                'preset.balanced': 'متعادل',
+                'preset.deep': 'عمیق',
+                'preset.fast.desc': '۳۰ ثانیه',
+                'preset.balanced.desc': 'توصیه‌شده',
+                'preset.deep.desc': 'دقیق‌تر',
+                'preset.applied': 'اعمال شد',
+                'set.maxLat': 'حداکثر تاخیر',
+                'set.samples': 'تعداد نمونه',
+                'set.timeout': 'تایم‌اوت',
+                'set.workers': 'تعداد ترد',
+                'set.samples.hint': 'از هر رنج',
+                'set.workers.hint': 'خودکار',
+                'set.config': 'کانفیگ V2Ray',
+                'set.sni': 'دامنه تست (SNI)',
+                'set.sni.hint': 'خودکار از کانفیگ',
+                'set.ports': 'پورت‌های تست',
+                'set.customDomain': 'Custom Domain',
+                'set.topXray': 'تعداد IP برای تست Xray',
+                'set.ech': 'ECH Config List',
+                'unit.sec': 'ثانیه',
+                'opt': 'اختیاری',
+                'adv.title': 'تنظیمات پیشرفته',
+                'tog.onlyXray': 'فقط کانفیگ‌های تأییدشده با Xray',
+                'tog.fragment': 'Smart Fragment',
+                'tog.useXray': 'فعال‌سازی تست Xray',
+                'tog.speed': 'تست سرعت واقعی',
+                'tog.history': 'استفاده از حافظه‌ی تاریخی',
+                'tog.ipv6': 'پشتیبانی IPv6',
+                'tog.ech': 'فعال‌سازی ECH',
+                'btn.start': 'شروع اسکن و ترکیب',
+                'btn.cancel': 'لغو',
+                'btn.copyIps': 'کپی IPها',
+                'cf.title': 'فیلتر نتایج',
+                'cf.reset': 'بازنشانی',
+                'cf.onlyXray': 'فقط Xray موفق',
+                'cf.zeroLoss': 'فقط افت صفر',
+                'cf.ipv4': 'فقط IPv4',
+                'cf.ipv6': 'فقط IPv6',
+                'cf.maxLat': 'حداکثر تأخیر:',
+                'cf.minScore': 'حداقل امتیاز:',
+                'cf.proto': 'پروتکل:',
+                'cf.anyProto': 'همه',
+                'cf.searchPh': 'جستجو در IP / کانفیگ',
+                'cf.noMatch': 'هیچ نتیجه‌ای مطابق فیلتر نیست',
+                'cf.noMatchDesc': 'فیلترها را ساده‌تر کنید یا بازنشانی بزنید.',
+                'btn.copyAll': 'کپی همه',
+                'btn.copyBest': 'کپی بهترین‌ها',
+                'btn.downloadTxt': 'دانلود TXT',
+                'btn.closeTab': 'بستن تب',
+                'btn.stopServer': 'توقف سرور',
+                'btn.copyOne': '📋 کپی',
+                'status.scanning': 'در حال اسکن موازی...',
+                'status.wait': 'لطفاً صبر کنید — این فرایند ممکنه چند دقیقه طول بکشه',
+                'phase1': 'تست سریع TLS',
+                'phase2': 'سنجش کیفیت',
+                'phase3': 'اعتبارسنجی Xray',
+                'phase.initial': 'شروع اسکن',
+                'phase.starting': 'شروع',
+                'phase.tls': 'تست سریع TLS',
+                'phase.quality': 'سنجش کیفیت',
+                'phase.xray': 'اعتبارسنجی Xray',
+                'summary.title': 'خلاصه نتایج',
+                'stat.tested': 'IP تست‌شده',
+                'stat.alive': 'IP تأییدشده',
+                'stat.ranges': 'رنج',
+                'results.title': 'IPهای برتر',
+                'results.empty': 'هیچ IP باکیفیتی یافت نشد. آستانه تاخیر یا نمونه‌ها را افزایش دهید.',
+                'th.row': '#',
+                'th.ip': 'آدرس IP',
+                'th.port': 'پورت',
+                'th.score': 'امتیاز',
+                'th.latency': 'تأخیر (ms)',
+                'th.jitter': 'Jitter',
+                'th.loss': 'افت بسته',
+                'th.xray': 'تونل Xray',
+                'combined.title': 'کانفیگ‌های آماده',
+                'combined.emptyXray.title': 'هیچ کانفیگی ساخته نشد',
+                'combined.emptyXray.desc': 'گزینه «فقط کانفیگ‌های تأییدشده با Xray» فعال است و هیچ‌کدام از IPها تست Xray را پاس نکردند.',
+                'combined.suggest.title': 'راه‌های افزایش شانس موفقیت:',
+                'combined.suggest.1': 'تعداد نمونه‌ها را بیشتر کنید (مثلاً 150 یا 200)',
+                'combined.suggest.2': 'حداکثر تأخیر را بالاتر ببرید (مثلاً 1500)',
+                'combined.suggest.3': 'چند پورت را تیک بزنید (مثلاً 443 + 8443)',
+                'combined.suggest.4': 'Smart Fragment را روشن کنید',
+                'combined.suggest.5': 'یا تیک «فقط کانفیگ‌های تأییدشده» را بردارید',
+                'combined.emptyParse.title': 'هیچ کانفیگی ساخته نشد',
+                'combined.emptyParse.desc': 'مشکل در پارس کانفیگ ورودی است. مطمئن شوید کانفیگ معتبر است.',
+                'xray.need.config': 'برای فعال شدن، کانفیگ VLESS / VMess / Trojan / Shadowsocks پیست کن.',
+                'xray.need.config.short': 'نیاز به کانفیگ VLESS / VMess / Trojan / Shadowsocks داره.',
+                'xray.valid': 'اعتبارسنجی نهایی با Xray.',
+                'xray.valid.short': 'فقط کانفیگ‌هایی که Xray تستشون رو پاس کرده.',
+                'confirm.cancel': 'اسکن کنسل بشه؟',
+                'confirm.shutdown': 'آیا می‌خواهید سرور را متوقف کنید؟\n\nبعد از این کار، برنامه کاملاً بسته می‌شود.',
+                'alert.noConfig': 'کانفیگی وجود ندارد',
+                'alert.emptyList': 'لیست خالی است',
+                'alert.exportReady': 'خروجی آماده شد',
+                'alert.error': 'خطا',
+                'toast.ipsCopied': 'IPها کپی شدند',
+                'toast.configsCopied': 'کانفیگ کپی شد',
+                'toast.configsCopiedN': 'کانفیگ کپی شد',
+                'toast.applied': 'حالت اعمال شد',
+                'browser.blocked': 'مرورگر اجازه بستن خودکار را نداد. لطفاً این تب را دستی ببندید.',
+                'shutdown.title': 'سرور متوقف شد',
+                'shutdown.msg': 'می‌توانید این تب مرورگر را ببندید.',
+                'shutdown.hint': 'اگر تب خودکار بسته نشد، دستی آن را ببندید.',
+                'footer.text': '⚡ CleanIP — بدون وابستگی خارجی • فقط کتابخانه استاندارد Go',
+                'error.title': 'خطا',
+                'ph.sni': 'خالی بگذارید → خودکار از کانفیگ',
+                'ph.workers': 'خودکار (بهینه)',
+                'ph.ech': 'ECH Config از Cloudflare',
+                'hint.ports': 'سریع‌ترین انتخاب می‌شه',
+                'hint.customDomain.optional': 'اختیاری — ضد DPI',
+                'hint.customDomain': 'اگه Worker خودت رو روی دامنه شخصی تنظیم کردی، اینجا بنویس تا workers.dev در کانفیگ نهایی جایگزین بشه.',
+                'hint.ech': 'از cloudflare.com/cdn-cgi/trace یا پنل Cloudflare بگیر.',
+                'hint.topXray': 'هرچی بیشتر، دقیق‌تر ولی کندتر. توصیه: 30',
+                'hint.config': 'IPهای تمیز در این کانفیگ‌ها جای‌گذاری می‌شن. پشتیبانی از: VLESS، VMess، Trojan، Shadowsocks',
+                'hint.sni': 'اگه خالی باشه، ابزار خودش SNI سالم پیدا می‌کنه.',
+                'desc.onlyXray': 'فقط کانفیگ‌هایی نمایش داده می‌شن که Xray تستشون رو پاس کرده.',
+                'desc.fragment': 'برای عبور از DPI ایران.',
+                'desc.speed': 'دانلود واقعی از Cloudflare Speed Test.',
+                'desc.history': 'IPهایی که قبلاً موفق بودن رو اول تست کن.',
+                'tog.saveHistory': 'ذخیره تاریخچه در فایل',
+                'desc.saveHistory': 'اگه روشن باشه، تاریخچه IPهای موفق در cleanip_history.json ذخیره می‌شه. اگه خاموش باشه، هیچ فایلی ساخته یا تغییر نمی‌کنه.',
+                'badge.manual': '✋ دستی',
+                'badge.manual.title': 'کنترل دستی',
+                'btn.clearHistory': 'حذف تاریخچه',
+                'confirm.clearHistory': 'آیا از حذف تاریخچه مطمئن هستید؟ این عمل قابل بازگشت نیست.',
+                'toast.historyCleared': 'تاریخچه حذف شد',
+                'desc.ipv6': 'تست IPهای IPv6 هم اضافه می‌شه.',
+                'desc.ech': 'Encrypted Client Hello — SNI رو رمزنگاری می‌کنه.'
+            },
+            en: {
+                'badge.auto': '🔒 Auto',
+                'badge.auto.title': 'Auto-set based on the selected mode',
+                'badge.needConfig': '⚠️ Needs Config',
+                'app.title': 'Clean IP Finder',
+                'app.subtitle': 'Smart multi-stage Cloudflare testing',
+                'badge.tls': '🚀 Fast TLS Test',
+                'badge.xray': '🎯 Xray Validation',
+                'step1.title': 'Scan Settings',
+                'step1.desc': 'Default mode is fine for most users',
+                'preset.fast': 'Fast',
+                'preset.balanced': 'Balanced',
+                'preset.deep': 'Deep',
+                'preset.fast.desc': '~30 sec',
+                'preset.balanced.desc': 'Recommended',
+                'preset.deep.desc': 'Accurate',
+                'preset.applied': 'applied',
+                'set.maxLat': 'Max Latency',
+                'set.samples': 'Sample Count',
+                'set.timeout': 'Timeout',
+                'set.workers': 'Workers',
+                'set.samples.hint': 'per range',
+                'set.workers.hint': 'auto',
+                'set.config': 'V2Ray Config',
+                'set.sni': 'Test Domain (SNI)',
+                'set.sni.hint': 'auto from config',
+                'set.ports': 'Test Ports',
+                'set.customDomain': 'Custom Domain',
+                'set.topXray': 'IPs to test with Xray',
+                'set.ech': 'ECH Config List',
+                'unit.sec': 'sec',
+                'opt': 'optional',
+                'adv.title': 'Advanced Settings',
+                'tog.onlyXray': 'Only Xray-verified configs',
+                'tog.fragment': 'Smart Fragment',
+                'tog.useXray': 'Enable Xray Test',
+                'tog.speed': 'Real Speed Test',
+                'tog.history': 'Use History Cache',
+                'tog.ipv6': 'IPv6 Support',
+                'tog.ech': 'Enable ECH',
+                'btn.start': 'Start Scan & Combine',
+                'btn.cancel': 'Cancel',
+                'btn.copyIps': 'Copy IPs',
+                'cf.title': 'Filter results',
+                'cf.reset': 'Reset',
+                'cf.onlyXray': 'Only Xray OK',
+                'cf.zeroLoss': 'Only zero loss',
+                'cf.ipv4': 'Only IPv4',
+                'cf.ipv6': 'Only IPv6',
+                'cf.maxLat': 'Max latency:',
+                'cf.minScore': 'Min score:',
+                'cf.proto': 'Protocol:',
+                'cf.anyProto': 'Any',
+                'cf.searchPh': 'Search IP / config',
+                'cf.noMatch': 'No result matches the filter',
+                'cf.noMatchDesc': 'Loosen the filters or reset.',
+                'btn.copyAll': 'Copy All',
+                'btn.downloadTxt': 'Download TXT',
+                'btn.closeTab': 'Close Tab',
+                'btn.stopServer': 'Stop Server',
+                'btn.copyOne': '📋 Copy',
+                'status.scanning': 'Scanning in parallel...',
+                'status.wait': 'Please wait — this may take a few minutes',
+                'phase1': 'Fast TLS Test',
+                'phase2': 'Quality Check',
+                'phase3': 'Xray Validation',
+                'phase.initial': 'Starting scan',
+                'phase.starting': 'Starting',
+                'phase.tls': 'Fast TLS Test',
+                'phase.quality': 'Quality Check',
+                'phase.xray': 'Xray Validation',
+                'summary.title': 'Results Summary',
+                'stat.tested': 'IPs Tested',
+                'stat.alive': 'Verified IPs',
+                'stat.ranges': 'Ranges',
+                'results.title': 'Top IPs',
+                'results.empty': 'No quality IP found. Increase the threshold or sample count.',
+                'th.row': '#',
+                'th.ip': 'IP Address',
+                'th.port': 'Port',
+                'th.score': 'Score',
+                'th.latency': 'Latency (ms)',
+                'th.jitter': 'Jitter',
+                'th.loss': 'Packet Loss',
+                'th.xray': 'Xray Tunnel',
+                'combined.title': 'Ready Configs',
+                'combined.emptyXray.title': 'No configs generated',
+                'combined.emptyXray.desc': 'The "Only Xray-verified configs" option is enabled, and none of the IPs passed the Xray test.',
+                'combined.suggest.title': 'Ways to increase success rate:',
+                'combined.suggest.1': 'Increase sample count (e.g. 150 or 200)',
+                'combined.suggest.2': 'Raise max latency (e.g. 1500)',
+                'combined.suggest.3': 'Check multiple ports (e.g. 443 + 8443)',
+                'combined.suggest.4': 'Enable Smart Fragment',
+                'combined.suggest.5': 'Or uncheck "Only verified configs"',
+                'combined.emptyParse.title': 'No configs generated',
+                'combined.emptyParse.desc': 'Error parsing the input config. Make sure it is valid.',
+                'xray.need.config': 'To enable, paste a VLESS / VMess / Trojan / Shadowsocks config above.',
+                'xray.need.config.short': 'Needs a VLESS / VMess / Trojan / Shadowsocks config.',
+                'xray.valid': 'Final validation with Xray.',
+                'xray.valid.short': 'Only configs that passed the Xray test.',
+                'confirm.cancel': 'Cancel the scan?',
+                'confirm.shutdown': 'Stop the server?\n\nAfter this, the program will fully close.',
+                'alert.noConfig': 'No config available',
+                'alert.emptyList': 'The list is empty',
+                'alert.exportReady': 'Export ready',
+                'alert.error': 'Error',
+                'toast.ipsCopied': 'IPs copied',
+                'toast.configsCopied': 'Config copied',
+                'toast.configsCopiedN': 'configs copied',
+                'toast.applied': 'applied',
+                'browser.blocked': 'The browser did not allow automatic tab closing. Please close the tab manually.',
+                'shutdown.title': 'Server Stopped',
+                'shutdown.msg': 'You can close this browser tab.',
+                'shutdown.hint': 'If the tab did not close automatically, close it manually.',
+                'footer.text': '⚡ CleanIP — No external dependencies • Go standard library only',
+                'error.title': 'Error',
+                'ph.sni': 'Leave empty → auto from config',
+                'ph.workers': 'Auto (optimized)',
+                'ph.ech': 'ECH Config from Cloudflare',
+                'hint.ports': 'Fastest port is kept',
+                'hint.customDomain.optional': 'optional — anti-DPI',
+                'hint.customDomain': 'If you set up your Worker on a custom domain, enter it here so workers.dev is replaced in the final config.',
+                'hint.ech': 'Get it from cloudflare.com/cdn-cgi/trace or Cloudflare dashboard.',
+                'hint.topXray': 'More = more accurate but slower. Recommended: 30',
+                'hint.config': 'Clean IPs are inserted into these configs. Supports: VLESS, VMess, Trojan, Shadowsocks',
+                'hint.sni': 'If empty, the tool finds a healthy SNI automatically.',
+                'desc.onlyXray': 'Only configs that passed the Xray test are shown.',
+                'desc.fragment': 'To bypass Iranian DPI.',
+                'desc.speed': 'Real download from Cloudflare Speed Test.',
+                'desc.history': 'Test previously successful IPs first.',
+                'tog.saveHistory': 'Save history to file',
+                'desc.saveHistory': 'If enabled, successful IP history is saved to cleanip_history.json. If disabled, no file is created or modified.',
+                'badge.manual': '✋ Manual',
+                'badge.manual.title': 'Manual control',
+                'btn.clearHistory': 'Clear History',
+                'confirm.clearHistory': 'Delete the history? This cannot be undone.',
+                'toast.historyCleared': 'History cleared',
+                'desc.ipv6': 'IPv6 IPs are also tested.',
+                'desc.ech': 'Encrypted Client Hello — encrypts SNI.'
+            }
+        };
+
+        function t(key) {
+            const lang = localStorage.getItem('cleanip-lang') || 'fa';
+            return (I18N[lang] && I18N[lang][key]) || key;
+        }
+
+        // Server → i18n key mapping for phase names
+        const PHASE_MAP = {
+            'شروع': 'phase.starting',
+            'تست سریع TLS': 'phase.tls',
+            'سنجش کیفیت': 'phase.quality',
+            'اعتبارسنجی Xray': 'phase.xray',
+            'شروع اسکن...': 'phase.initial',
+            'در حال تست TLS...': 'phase.tls',
+            'در حال سنجش کیفیت...': 'phase.quality',
+            'در حال تست Xray...': 'phase.xray'
+        };
+
+        function trPhase(msg) {
+            if (!msg) return msg;
+            if (PHASE_MAP[msg]) return t(PHASE_MAP[msg]);
+            for (const k in PHASE_MAP) {
+                if (msg.startsWith(k)) return t(PHASE_MAP[k]);
+            }
+            return msg;
+        }
+
+        function applyLang(lang) {
+            const dict = I18N[lang];
+            if (!dict) return;
+
+            document.documentElement.lang = lang;
+            document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (dict[key]) el.textContent = dict[key];
+            });
+
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (dict[key]) el.placeholder = dict[key];
+            });
+
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                const key = el.getAttribute('data-i18n-title');
+                if (dict[key]) el.title = dict[key];
+            });
+
+            const btn = document.getElementById('lang-text');
+            if (btn) btn.textContent = lang === 'fa' ? 'EN' : 'فا';
+
+            localStorage.setItem('cleanip-lang', lang);
+
+            // Refresh dynamic texts
+            if (typeof updateXrayState === 'function') updateXrayState();
+            if (typeof renderCombinedList === 'function' &&
+                typeof combinedConfigs !== 'undefined' &&
+                combinedConfigs && combinedConfigs.length) {
+                try { renderCombinedList(); } catch (e) {}
+            }
+        }
+
+        function toggleLang() {
+            const current = localStorage.getItem('cleanip-lang') || 'fa';
+            applyLang(current === 'fa' ? 'en' : 'fa');
+        }
+
+        (function() {
+            let lang = localStorage.getItem('cleanip-lang');
+            if (!lang) {
+                lang = (navigator.language || 'fa').toLowerCase().startsWith('fa') ? 'fa' : 'en';
+            }
+            applyLang(lang);
+        })();
+
+        // ================================================
+        // NOTE: these MUST be 'var', not 'let'.
+        // The IIFE above (applyLang → updateXrayState) runs before
+        // these lines are reached, and it touches xrayTogglesInitialized.
+        // Using 'let' triggers a TDZ ReferenceError and kills the script.
+        var scanResults = [];
+        var combinedConfigs = [];
+        var scanningInProgress = false;
+        var xrayTogglesInitialized = false;
+
+        const PRESETS = {
+            fast: {
+                max_latency: 1200, samples: 50, timeout: 1.5, workers: 800,
+                ports: ['443'],
+                only_xray: false, smart_fragment: true, use_xray: false,
+                do_throughput: false, use_history: false, use_ipv6: false, use_ech: false,
+                top_xray: 10, save_history: false
+            },
+            balanced: {
+                max_latency: 800, samples: 100, timeout: 2, workers: 0,
+                ports: ['443', '8443'],
+                only_xray: true, smart_fragment: true, use_xray: true,
+                do_throughput: false, use_history: true, use_ipv6: false, use_ech: false,
+                top_xray: 30, save_history: false
+            },
+            deep: {
+                max_latency: 1500, samples: 200, timeout: 3, workers: 0,
+                ports: ['443', '2053', '2083', '2087', '2096', '8443'],
+                only_xray: true, smart_fragment: true, use_xray: true,
+                do_throughput: true, use_history: true, use_ipv6: true, use_ech: true,
+                top_xray: 50, save_history: false
+            }
+        };
+
+        function applyPreset(name) {
+            const p = PRESETS[name];
+            if (!p) return;
+
+            document.getElementById('max-latency').value = p.max_latency;
+            document.getElementById('samples').value = p.samples;
+            document.getElementById('timeout').value = p.timeout;
+            document.getElementById('workers').value = p.workers || '';
+            document.getElementById('top-xray').value = p.top_xray;
+
+            document.querySelectorAll('.port-chip input').forEach(inp => {
+                inp.checked = p.ports.includes(inp.value);
+            });
+
+            document.getElementById('only-xray').checked      = p.only_xray;
+            document.getElementById('smart-fragment').checked = p.smart_fragment;
+            document.getElementById('use-xray').checked       = p.use_xray;
+            document.getElementById('do-throughput').checked  = p.do_throughput;
+            document.getElementById('use-history').checked    = p.use_history;
+            document.getElementById('use-ipv6').checked       = p.use_ipv6;
+            document.getElementById('use-ech').checked        = p.use_ech;
+            // Privacy default: presets never enable file writes.
+            const saveHistEl = document.getElementById('save-history');
+            if (saveHistEl) saveHistEl.checked = !!p.save_history;
+
+            document.getElementById('ech-config-field').style.display =
+                p.use_ech ? 'block' : 'none';
+
+            xrayTogglesInitialized = false;
+            if (typeof updateXrayState === 'function') updateXrayState();
+
+            toast(t('preset.' + name) + ' ' + t('preset.applied'));
+        }
+
+        document.querySelectorAll('.preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                applyPreset(btn.dataset.preset);
+            });
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            applyPreset('balanced');
+        });
+
+        function setActiveStep(step) {
+            document.querySelectorAll('.progress-step').forEach(el => {
+                el.classList.toggle('active', parseInt(el.dataset.step) === step);
+            });
+        }
+
+        document.getElementById('use-ech').addEventListener('change', (e) => {
+            document.getElementById('ech-config-field').style.display = e.target.checked ? 'block' : 'none';
+        });
+
+        function hasTestableConfig() {
+            const cfg = document.getElementById('v2ray-config').value.trim();
+            if (!cfg) return false;
+            return /vless:\/\/|trojan:\/\/|vmess:\/\/|ss:\/\//i.test(cfg);
+        }
+
+        function updateXrayState() {
+            const useXrayEl  = document.getElementById('use-xray');
+            const onlyXrayEl = document.getElementById('only-xray');
+            const needBadge1 = document.getElementById('xray-need-badge');
+            const needBadge2 = document.getElementById('onlyxray-need-badge');
+            const autoBadge1 = document.getElementById('xray-auto-badge');
+            const autoBadge2 = document.getElementById('onlyxray-auto-badge');
+            const desc1      = document.getElementById('xray-toggle-desc');
+            const desc2      = document.getElementById('onlyxray-toggle-desc');
+            const row        = document.getElementById('xray-toggle-row');
+
+            if (!useXrayEl || !needBadge1) return;
+
+            const ok = hasTestableConfig();
+
+            if (!ok) {
+                if (useXrayEl.checked) useXrayEl.checked = false;
+                if (onlyXrayEl && onlyXrayEl.checked) onlyXrayEl.checked = false;
+                xrayTogglesInitialized = false;
+
+                needBadge1.classList.remove('hidden');
+                needBadge2.classList.remove('hidden');
+                if (autoBadge1) autoBadge1.classList.add('hidden');
+                if (autoBadge2) autoBadge2.classList.add('hidden');
+                if (row) row.style.opacity = '0.65';
+
+                desc1.textContent = t('xray.need.config');
+                desc2.textContent = t('xray.need.config.short');
+            } else {
+                needBadge1.classList.add('hidden');
+                needBadge2.classList.add('hidden');
+                if (autoBadge1) autoBadge1.classList.remove('hidden');
+                if (autoBadge2) autoBadge2.classList.remove('hidden');
+                if (row) row.style.opacity = '1';
+
+                desc1.textContent = t('xray.valid');
+                desc2.textContent = t('xray.valid.short');
+
+                if (!xrayTogglesInitialized) {
+                    // Defensive: PRESETS is a const declared later in the
+                    // script. `typeof` on a const in TDZ throws a
+                    // ReferenceError. Catch it just in case.
+                    try {
+                        const active = document.querySelector('.preset.active');
+                        if (active && typeof PRESETS !== 'undefined') {
+                            const p = PRESETS[active.dataset.preset];
+                            if (p) {
+                                useXrayEl.checked  = p.use_xray;
+                                if (onlyXrayEl) onlyXrayEl.checked = p.only_xray;
+                            }
+                        }
+                    } catch (e) { /* PRESETS not yet initialized */ }
+                    xrayTogglesInitialized = true;
+                }
+            }
+        }
+
+        document.getElementById('v2ray-config').addEventListener('input', updateXrayState);
+        document.getElementById('v2ray-config').addEventListener('paste', () => setTimeout(updateXrayState, 10));
+
+        window.addEventListener('DOMContentLoaded', () => setTimeout(updateXrayState, 100));
+
+        let progressInterval = null;
+
+        function startProgressPolling() {
+            stopProgressPolling();
+            progressInterval = setInterval(async () => {
+                try {
+                    const r = await fetch('/api/progress');
+                    const p = await r.json();
+                    if (!p || !p.total) return;
+
+                    const pct = Math.round((p.done / p.total) * 100) || 0;
+                    document.getElementById('progress-fill').style.width = pct + '%';
+                    document.getElementById('progress-percent').textContent = pct + ((localStorage.getItem('cleanip-lang') || 'fa') === 'fa' ? '٪' : '%');
+                    document.getElementById('progress-count').textContent =
+                        (p.done || 0) + ' / ' + (p.total || 0);
+                    document.getElementById('progress-elapsed').textContent =
+                        (p.elapsed || 0).toFixed(1) + ' ' + t('unit.sec');
+
+                    if (p.phase_name) {
+                        document.getElementById('status-text').textContent = trPhase(p.phase_name) + '...';
+                        setActiveStep(p.phase || 1);
+                    }
+                    if (p.message) {
+                        document.getElementById('status-hint').textContent = trPhase(p.message);
+                    }
+                } catch (e) {}
+            }, 300);
+        }
+
+        function stopProgressPolling() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+        }
+
+        async function cancelScan() {
+            if (!confirm(t('confirm.cancel'))) return;
+            try {
+                await fetch('/api/cancel', { method: 'POST' });
+            } catch (e) {}
+        }
+
+        async function exportAs(format) {
+            if (!combinedConfigs.length) return alert(t('alert.noConfig'));
+            try {
+                const r = await fetch('/api/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ format, configs: combinedConfigs })
+                });
+                const data = await r.json();
+                let content = '';
+                let filename = 'cleanip-' + format;
+                if (format === 'clash') {
+                    content = data.content;
+                    filename += '.yaml';
+                } else if (format === 'singbox') {
+                    content = JSON.stringify(data, null, 2);
+                    filename += '.json';
+                } else {
+                    content = JSON.stringify(data.configs || combinedConfigs, null, 2);
+                    filename += '.json';
+                }
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast(t('alert.exportReady') + ' — ' + format);
+            } catch (e) {
+                alert(t('alert.error') + ': ' + e.message);
+            }
+        }
+
+        async function startScan() {
+            const payload = {
+                samples:        parseInt(document.getElementById("samples").value) || 100,
+                workers:        parseInt(document.getElementById("workers").value) || 0,
+                timeout:        parseFloat(document.getElementById("timeout").value) || 2,
+                max_latency:    parseFloat(document.getElementById("max-latency").value) || 800,
+                test_host:      document.getElementById("test-host").value.trim(),
+                config:         document.getElementById("v2ray-config").value.trim(),
+                ports:          Array.from(document.querySelectorAll(".port-chip input:checked")).map(c => parseInt(c.value)),
+                only_xray:      document.getElementById("only-xray").checked,
+                smart_fragment: document.getElementById("smart-fragment").checked,
+                custom_domain:  document.getElementById("custom-domain").value.trim(),
+                use_xray:       hasTestableConfig() && document.getElementById("use-xray").checked,
+                use_ech:        document.getElementById("use-ech").checked,
+                ech_config:     document.getElementById("ech-config").value.trim(),
+                use_ipv6:       document.getElementById("use-ipv6").checked,
+                top_xray:       parseInt(document.getElementById("top-xray").value) || 30,
+                do_throughput:   document.getElementById("do-throughput").checked,
+                use_history:     document.getElementById("use-history").checked,
+                history_allowed: !!(document.getElementById("save-history")?.checked),
+            };
+
+            hideAll();
+            document.getElementById("status").classList.remove("hidden");
+            document.getElementById("scan-btn").disabled = true;
+            scanningInProgress = true;
+            setActiveStep(1);
+            startProgressPolling();
+
+            try {
+                const response = await fetch("/api/scan", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+
+                if (response.status === 409) {
+                    toast(data.error || t('alert.error'));
+                    return;
+                }
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                document.getElementById("stat-tested").textContent = data.total_tested;
+                document.getElementById("stat-alive").textContent = data.total_alive;
+                document.getElementById("stat-elapsed").textContent = fmt(data.elapsed_sec, 2);
+                document.getElementById("stat-ranges").textContent = data.ranges_count;
+                document.getElementById("summary").classList.remove("hidden");
+
+                const tbody = document.getElementById("results-body");
+                tbody.innerHTML = "";
+                scanResults = data.results;
+                document.getElementById("results-count").textContent = data.results.length;
+
+                if (!data.results.length) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="empty"><span class="empty-icon">🔍</span>' + escapeHtml(t('results.empty')) + '</td></tr>';
+                } else {
+                    data.results.forEach((r, i) => {
+                        const score   = fmt(r.score, 2);
+                        const latency = fmt(r.latency_avg, 1);
+                        const jitter  = fmt(r.jitter, 1);
+                        const loss    = fmt(r.packet_loss, 1);
+                        let tunnel;
+                        if (r.tunnel_latency != null) {
+                            tunnel = `<span class="xray-ok">✅ ${fmt(r.tunnel_latency, 1)} ms</span>`;
+                        } else if (r.xray_success === false) {
+                            tunnel = '<span class="xray-fail">❌</span>';
+                        } else {
+                            tunnel = '-';
+                        }
+
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `
+                            <td>${i + 1}</td>
+                            <td class="ip-cell">${r.ip}</td>
+                            <td class="num-cell">${r.port || 443}</td>
+                            <td><span class="score-badge ${scoreClass(r.score)}">${score}</span></td>
+                            <td class="num-cell">${latency}</td>
+                            <td class="num-cell">${jitter}</td>
+                            <td class="num-cell">${loss}%</td>
+                            <td class="num-cell">${tunnel}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+                document.getElementById("results-section").classList.remove("hidden");
+
+                const hasConfigInput = document.getElementById("v2ray-config").value.trim().length > 0;
+                if (hasConfigInput) {
+                    combinedConfigs = data.combined || [];
+                    document.getElementById("combined-count").textContent = combinedConfigs.length;
+                    const list = document.getElementById("combined-list");
+                    list.innerHTML = "";
+
+                    if (combinedConfigs.length > 0) {
+                        renderCombinedList();
+                    } else {
+                        let msg = "";
+                        if (data.xray_filtered && data.xray_passed === 0 && data.only_xray) {
+                            msg = `
+                                <div class="combined-empty strict">
+                                    <div class="empty-icon">🎯</div>
+                                    <h3>${escapeHtml(t('combined.emptyXray.title'))}</h3>
+                                    <p>${escapeHtml(t('combined.emptyXray.desc'))}</p>
+                                    <div class="empty-suggest">
+                                        <strong>${escapeHtml(t('combined.suggest.title'))}</strong>
+                                        <ul>
+                                            <li>${escapeHtml(t('combined.suggest.1'))}</li>
+                                            <li>${escapeHtml(t('combined.suggest.2'))}</li>
+                                            <li>${escapeHtml(t('combined.suggest.3'))}</li>
+                                            <li>${escapeHtml(t('combined.suggest.4'))}</li>
+                                            <li>${escapeHtml(t('combined.suggest.5'))}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            msg = `
+                                <div class="combined-empty strict">
+                                    <div class="empty-icon">❓</div>
+                                    <h3>${escapeHtml(t('combined.emptyParse.title'))}</h3>
+                                    <p>${escapeHtml(t('combined.emptyParse.desc'))}</p>
+                                </div>
+                            `;
+                        }
+                        list.innerHTML = msg;
+                    }
+                    document.getElementById("combined-section").classList.remove("hidden");
+                }
+
+                document.getElementById("status").classList.add("hidden");
+
+            } catch (err) {
+                showError(t('alert.error') + ': ' + err.message);
+            } finally {
+                document.getElementById("scan-btn").disabled = false;
+                scanningInProgress = false;
+                stopProgressPolling();
+                document.getElementById("progress-fill").style.width = '0%';
+                document.getElementById("status").classList.add("hidden");
+            }
+        }
+
+        function fmt(value, decimals) {
+            if (value === null || value === undefined || isNaN(value)) return "-";
+            return Number(value).toFixed(decimals);
+        }
+
+        function escapeHtml(s) {
+            if (s == null) return "";
+            return String(s).replace(/[&<>"']/g, m => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+            }[m]));
+        }
+
+        function scoreClass(score) {
+            if (score >= 80) return "score-excellent";
+            if (score >= 60) return "score-good";
+            if (score >= 40) return "score-fair";
+            return "score-poor";
+        }
+
+        function hideAll() {
+            ["summary", "results-section", "combined-section", "error-section", "status"]
+                .forEach(id => document.getElementById(id).classList.add("hidden"));
+        }
+
+        function showError(msg) {
+            hideAll();
+            document.getElementById("error-text").textContent = msg;
+            document.getElementById("error-section").classList.remove("hidden");
+        }
+
+        function copyIps() {
+            if (!scanResults.length) return alert(t('alert.emptyList'));
+            const text = scanResults.map(r => r.ip).join("\n");
+            navigator.clipboard.writeText(text).then(() => toast(t('toast.ipsCopied')));
+        }
+
+
+        function copyAllCombined() {
+            if (!combinedConfigs.length) return alert(t('alert.noConfig'));
+            const text = combinedConfigs.map(c => c.config).join("\n");
+            navigator.clipboard.writeText(text).then(() =>
+                toast(combinedConfigs.length + ' ' + t('toast.configsCopiedN')));
+        }
+
+        function copyOne(i) {
+            navigator.clipboard.writeText(combinedConfigs[i].config)
+                .then(() => toast(t('toast.configsCopied')));
+        }
+
+        function downloadCombined(format) {
+            if (!combinedConfigs.length) return;
+            if (format && format !== 'txt') {
+                return exportAs(format);
+            }
+            const text = combinedConfigs.map(c => c.config).join("\n");
+            const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "clean-configs.txt";
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function toast(msg) {
+            const t = document.createElement("div");
+            t.className = "toast";
+            t.innerHTML = `<span>✅</span><span>${msg}</span>`;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 2200);
+        }
+
+        async function clearHistory() {
+            if (!confirm(t('confirm.clearHistory'))) return;
+            try {
+                const r = await fetch('/api/history', { method: 'DELETE' });
+                if (r.ok) {
+                    toast(t('toast.historyCleared'));
+                } else {
+                    alert(t('alert.error'));
+                }
+            } catch (e) {
+                alert(t('alert.error') + ': ' + e.message);
+            }
+        }
+
+        async function stopServer() {
+            if (!confirm(t('confirm.shutdown'))) {
+                return;
+            }
+            const btn = document.getElementById("stop-btn");
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span><span>...</span>';
+
+            try {
+                await fetch("/api/shutdown", { method: "POST" });
+            } catch (e) {}
+
+            document.getElementById("shutdown-overlay").classList.remove("hidden");
+            setTimeout(tryCloseTab, 800);
+        }
+
+        function tryCloseTab() {
+            try {
+                window.open('', '_self', '');
+                window.close();
+            } catch (e) {}
+            setTimeout(() => {
+                document.querySelector('.shutdown-hint').textContent = t('browser.blocked');
+            }, 500);
+        }
+
+        window.addEventListener("beforeunload", (e) => {
+            const overlay = document.getElementById("shutdown-overlay");
+            if (overlay && !overlay.classList.contains("hidden")) return;
+            if (!scanningInProgress) return;
+            e.preventDefault();
+            e.returnValue = "";
+        });
+
+        // ============================================================
+        // Combined display filter
+        // ============================================================
+function renderCombinedList() {
+    const list = document.getElementById('combined-list');
+    if (!list) return;
+
+    const onlyXray   = document.getElementById('cf-only-xray');
+    const zeroLoss   = document.getElementById('cf-zero-loss');
+    const onlyV4     = document.getElementById('cf-ipv4');
+    const onlyV6     = document.getElementById('cf-ipv6');
+    const maxLatEl   = document.getElementById('cf-max-lat');
+    const minScoreEl = document.getElementById('cf-min-score');
+    const protoEl    = document.getElementById('cf-proto');
+    const searchEl   = document.getElementById('cf-search');
+    const countEl    = document.getElementById('cf-count');
+    const hiddenEl   = document.getElementById('cf-hidden');
+
+    const fOnlyXray  = !!(onlyXray   && onlyXray.checked);
+    const fZeroLoss  = !!(zeroLoss   && zeroLoss.checked);
+    const fV4        = !!(onlyV4     && onlyV4.checked);
+    const fV6        = !!(onlyV6     && onlyV6.checked);
+    const fMaxLat    = maxLatEl   ? (parseFloat(maxLatEl.value)   || 0) : 0;
+    const fMinScore  = minScoreEl ? (parseFloat(minScoreEl.value) || 0) : 0;
+    const fProto     = protoEl    ? (protoEl.value || '') : '';
+    const fSearch    = searchEl   ? searchEl.value.trim().toLowerCase() : '';
+
+    const anyActive = fOnlyXray || fZeroLoss || fV4 || fV6 ||
+                      fMaxLat > 0 || fMinScore > 0 || fProto !== '' || fSearch !== '';
+
+    const total = combinedConfigs.length;
+    const filtered = [];
+
+    for (const c of combinedConfigs) {
+        if (fOnlyXray && c.xray_success !== true) continue;
+        if (fZeroLoss && (c.packet_loss || 0) > 0) continue;
+        if (fV4 && !fV6 && typeof c.ip === 'string' && c.ip.indexOf(':') >= 0) continue;
+        if (fV6 && !fV4 && (typeof c.ip !== 'string' || c.ip.indexOf(':') < 0)) continue;
+        if (fMaxLat   > 0 && (c.latency_ms || 0) > fMaxLat)   continue;
+        if (fMinScore > 0 && (c.score     || 0) < fMinScore)  continue;
+        if (fProto && c.proto !== fProto) continue;
+        if (fSearch) {
+            const hay = ((c.config || '') + ' ' + (c.ip || '')).toLowerCase();
+            if (hay.indexOf(fSearch) < 0) continue;
+        }
+        filtered.push(c);
+    }
+
+    const hidden = total - filtered.length;
+
+    if (countEl) {
+        countEl.textContent = filtered.length + ' / ' + total;
+    }
+    if (hiddenEl) {
+        if (!anyActive || hidden === 0) {
+            hiddenEl.textContent = '';
+            hiddenEl.className = 'cf-hidden';
+        } else {
+            hiddenEl.textContent = '− ' + hidden;
+            hiddenEl.className = 'cf-hidden active';
+        }
+    }
+
+    list.innerHTML = '';
+
+    if (filtered.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'combined-empty strict';
+        div.innerHTML =
+            '<div class="empty-icon">🧹</div>' +
+            '<h3>' + escapeHtml(t('cf.noMatch'))     + '</h3>' +
+            '<p>'  + escapeHtml(t('cf.noMatchDesc')) + '</p>';
+        list.appendChild(div);
+        return;
+    }
+
+    filtered.forEach((c, i) => {
+        const origIdx = combinedConfigs.indexOf(c);
+        // small xray status badge
+        let xrayBadge = '';
+        if (c.xray_success === true)       xrayBadge = ' <span class="xray-ok" title="Xray OK">✅</span>';
+        else if (c.xray_success === false) xrayBadge = ' <span class="xray-fail" title="Xray failed">❌</span>';
+
+        const div = document.createElement('div');
+        div.className = 'combined-item';
+        div.innerHTML =
+            '<div class="combined-header">' +
+                '<span class="combined-index">#' + (i + 1) + '</span>' +
+                '<span class="proto-tag">'        + escapeHtml(c.proto) + '</span>' +
+                '<span class="combined-ip">'      + escapeHtml(c.ip) + xrayBadge + '</span>' +
+                '<span class="combined-latency">' + fmt(c.latency_ms, 1) + ' ms</span>' +
+            '</div>' +
+            '<div class="combined-config" title="' + escapeHtml(c.config) + '">' +
+                escapeHtml(c.config) +
+            '</div>' +
+            '<button class="copy-one" onclick="copyOne(' + origIdx + ')">' +
+                t('btn.copyOne') +
+            '</button>';
+        list.appendChild(div);
+    });
+
+    try {
+        console.log('[filter] total=' + total +
+                    ' shown=' + filtered.length +
+                    ' hidden=' + hidden +
+                    ' xray=' + fOnlyXray +
+                    ' loss=' + fZeroLoss +
+                    ' v4=' + fV4 + ' v6=' + fV6 +
+                    ' maxLat=' + fMaxLat +
+                    ' minScore=' + fMinScore +
+                    ' proto="' + fProto + '"' +
+                    ' search="' + fSearch + '"');
+    } catch (_) {}
+}
+
+        function resetCombinedFilter() {
+            const ids = ['cf-only-xray','cf-zero-loss','cf-ipv4','cf-ipv6'];
+            for (const id of ids) {
+                const el = document.getElementById(id);
+                if (el) el.checked = false;
+            }
+            const ml = document.getElementById('cf-max-lat');   if (ml) ml.value = '0';
+            const ms = document.getElementById('cf-min-score'); if (ms) ms.value = '0';
+            const pr = document.getElementById('cf-proto');     if (pr) pr.value = '';
+            const se = document.getElementById('cf-search');    if (se) se.value = '';
+            renderCombinedList();
+        }
+
+                (function attachCombinedFilter() {
+            const ids = ['cf-only-xray','cf-zero-loss','cf-ipv4','cf-ipv6',
+                         'cf-max-lat','cf-min-score','cf-proto','cf-search'];
+            function bind() {
+                for (const id of ids) {
+                    const el = document.getElementById(id);
+                    if (!el) return false;
+                    el.addEventListener('input',  renderCombinedList);
+                    el.addEventListener('change', renderCombinedList);
+                }
+                return true;
+            }
+            if (!bind()) window.addEventListener('DOMContentLoaded', bind);
+        })();
+
+
+        // ============================================================
+        // Combined list — diagnostic helpers
+        // ============================================================
+function combinedXrayStats() {
+            if (typeof combinedConfigs === 'undefined' || !combinedConfigs.length) {
+                return { total: 0, ok: 0, fail: 0, unknown: 0 };
+            }
+            let ok = 0, fail = 0, unknown = 0;
+            for (const c of combinedConfigs) {
+                if (c.xray_success === true)       ok++;
+                else if (c.xray_success === false) fail++;
+                else                                unknown++;
+            }
+            const r = { total: combinedConfigs.length, ok: ok, fail: fail, unknown: unknown };
+            console.log('[xray-stats]', r);
+            return r;
+        }
+
+    </script>
+
+    <button id="stop-btn" onclick="stopServer()" title="توقف سرور">
+        <span>⏹</span>
+        <span data-i18n="btn.stopServer">توقف سرور</span>
+    </button>
+
+    <div id="shutdown-overlay" class="shutdown-overlay hidden">
+        <div class="shutdown-box">
+            <div class="shutdown-icon">✅</div>
+            <h1 data-i18n="shutdown.title">سرور متوقف شد</h1>
+            <p data-i18n="shutdown.msg">می‌توانید این تب مرورگر را ببندید.</p>
+            <p class="shutdown-hint" data-i18n="shutdown.hint">اگر تب خودکار بسته نشد، دستی آن را ببندید.</p>
+            <button onclick="tryCloseTab()" class="shutdown-close" data-i18n="btn.closeTab">بستن تب</button>
+        </div>
+    </div>
+</body>
+</html>
