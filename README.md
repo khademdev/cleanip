@@ -223,3 +223,25 @@ Copyright © 2025 **Meysam Khademshams (میثم خادم شمس)**
 Made with ❤️ by [Meysam Khademshams](https://github.com/khademdev)
 
 </div>
+
+---
+
+## 🏷️ Keywords / کلمات کلیدی
+
+**English:** `Cloudflare` · `Clean IP` · `V2Ray` · `Xray` · `VLESS` · `VMess` · `Trojan` · `Shadowsocks` · `Iran` · `DPI Bypass` · `Proxy` · `Anti-Censorship` · `Free Config` · `IP Scanner` · `Network Tool`
+
+**فارسی:** آی پی تمیز · کلادفلر · پروکسی · عبور از فیلترینگ · دور زدن DPI · کانفیگ آماده · v2ray فارسی · xray فارسی · اسکنر شبکه
+
+<!--
+SEO keywords (hidden, for GitHub search indexing):
+پیدا کردن آی پی تمیز کلادفلر
+آی پی تمیز برای وی پی ان
+بهترین آی پی کلادفلر
+آی پی کلادفلر برای ایران
+پروکسی کلادفلر
+تست آی پی
+اسکنر آی پی
+عبور از فیلترینگ
+دور زدن DPI
+کانفیگ آماده رایگان
+-->
