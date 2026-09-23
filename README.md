@@ -35,7 +35,7 @@ Get the latest binary from the Releases page.
 ## Build from source
 
 ```bash
-git clone https://github.com/meysamkhademshams/cleanip.git
+git clone https://github.com/khademdev/cleanip.git
 cd cleanip
 make build
 ```
