@@ -1775,19 +1775,19 @@ func combineConfigs(configsText string, results []QualityResult, customDomain st
 
 // ==================== SCAN ====================
 type ScanOptions struct {
-	Workers       int
-	Timeout       time.Duration
-	MaxLatency    float64
-	ConfigURI     string
-	Ports         []int
-	TestHost      string
-	SmartFragment bool
-	CustomDomain  string
-	UseXray       bool
-	UseECH        bool
-	ECHConfig     string
-	UseIPv6       bool
-	TopXray       int
+	Workers        int
+	Timeout        time.Duration
+	MaxLatency     float64
+	ConfigURI      string
+	Ports          []int
+	TestHost       string
+	SmartFragment  bool
+	CustomDomain   string
+	UseXray        bool
+	UseECH         bool
+	ECHConfig      string
+	UseIPv6        bool
+	TopXray        int
 	DoThroughput   bool
 	UseHistory     bool
 	HistoryAllowed bool
@@ -2072,21 +2072,21 @@ func mustParseTime(s string) time.Time {
 
 // ==================== HTTP ====================
 type ScanRequest struct {
-	Samples       int     `json:"samples"`
-	Workers       int     `json:"workers"`
-	Timeout       float64 `json:"timeout"`
-	MaxLatency    float64 `json:"max_latency"`
-	TestHost      string  `json:"test_host"`
-	Config        string  `json:"config"`
-	Ports         []int   `json:"ports"`
-	OnlyXray      bool    `json:"only_xray"`
-	SmartFragment bool    `json:"smart_fragment"`
-	CustomDomain  string  `json:"custom_domain"`
-	UseXray       bool    `json:"use_xray"`
-	UseECH        bool    `json:"use_ech"`
-	ECHConfig     string  `json:"ech_config"`
-	UseIPv6       bool    `json:"use_ipv6"`
-	TopXray       int     `json:"top_xray"`
+	Samples        int     `json:"samples"`
+	Workers        int     `json:"workers"`
+	Timeout        float64 `json:"timeout"`
+	MaxLatency     float64 `json:"max_latency"`
+	TestHost       string  `json:"test_host"`
+	Config         string  `json:"config"`
+	Ports          []int   `json:"ports"`
+	OnlyXray       bool    `json:"only_xray"`
+	SmartFragment  bool    `json:"smart_fragment"`
+	CustomDomain   string  `json:"custom_domain"`
+	UseXray        bool    `json:"use_xray"`
+	UseECH         bool    `json:"use_ech"`
+	ECHConfig      string  `json:"ech_config"`
+	UseIPv6        bool    `json:"use_ipv6"`
+	TopXray        int     `json:"top_xray"`
 	DoThroughput   bool    `json:"do_throughput"`
 	UseHistory     bool    `json:"use_history"`
 	HistoryAllowed bool    `json:"history_allowed"`
@@ -2200,19 +2200,19 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		echConfig = req.ECHConfig
 	}
 	results := scan(candidates, ScanOptions{
-		Workers:       req.Workers,
-		Timeout:       timeout,
-		MaxLatency:    req.MaxLatency,
-		ConfigURI:     req.Config,
-		Ports:         req.Ports,
-		TestHost:      req.TestHost,
-		SmartFragment: req.SmartFragment,
-		CustomDomain:  req.CustomDomain,
-		UseXray:       req.UseXray,
-		UseECH:        req.UseECH,
-		ECHConfig:     echConfig,
-		UseIPv6:       req.UseIPv6,
-		TopXray:       req.TopXray,
+		Workers:        req.Workers,
+		Timeout:        timeout,
+		MaxLatency:     req.MaxLatency,
+		ConfigURI:      req.Config,
+		Ports:          req.Ports,
+		TestHost:       req.TestHost,
+		SmartFragment:  req.SmartFragment,
+		CustomDomain:   req.CustomDomain,
+		UseXray:        req.UseXray,
+		UseECH:         req.UseECH,
+		ECHConfig:      echConfig,
+		UseIPv6:        req.UseIPv6,
+		TopXray:        req.TopXray,
 		DoThroughput:   req.DoThroughput,
 		UseHistory:     req.UseHistory,
 		HistoryAllowed: req.HistoryAllowed,
