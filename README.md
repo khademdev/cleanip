@@ -150,6 +150,19 @@ To enable real tunnel validation:
 Without Xray, the tool still works but runs only TLS and quality tests.
 
 ---
+## 📸 Screenshots
+
+### رابط کاربری اصلی
+![Main UI](docs/screenshots/main-ui.png)
+
+### در حال اسکن
+![Scan Progress](docs/screenshots/scan-progress.png)
+
+### جدول نتایج
+![Results](docs/screenshots/results.png)
+
+### کانفیگ‌های آماده
+![Combined Configs](docs/screenshots/combined.png)
 
 ## 🛠️ Build from Source
 
