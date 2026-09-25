@@ -47,7 +47,6 @@ const (
 	DefaultTop     = 30
 	MaxCandidates  = 20000
 	MaxFastResults = 200
-	SocksPort      = 10808
 	HistoryFile    = "cleanip_history.json"
 )
 
@@ -138,16 +137,25 @@ func setProgress(p Progress) {
 func updateProgress(fn func(*Progress)) {
 	progressMu.Lock()
 	defer progressMu.Unlock()
-	p := getProgress()
+	p := getProgressUnlocked()
 	fn(&p)
 	scanProgress.Store(p)
 }
-func getProgress() Progress {
+
+// getProgressUnlocked — نسخه‌ی بدون قفل. فقط از داخل توابعی که
+// خودشون progressMu رو گرفتن صدا زده می‌شه (جلوگیری از deadlock).
+func getProgressUnlocked() Progress {
 	v := scanProgress.Load()
 	if v == nil {
 		return Progress{}
 	}
 	return v.(Progress)
+}
+
+func getProgress() Progress {
+	progressMu.Lock()
+	defer progressMu.Unlock()
+	return getProgressUnlocked()
 }
 
 func isCancelled() bool {
@@ -383,6 +391,33 @@ func sampleRange(cidr string, count int) []string {
 		return nil
 	}
 	hostBits := 0
+	if !prefix.Addr().Is4() {
+		// IPv6: نمونه‌گیری تصادفی از اولین بایت کاملاً آزاد.
+		// startByte = عددی که بعد از prefix شروع می‌شه.
+		base := prefix.Masked().Addr().As16()
+		startByte := prefix.Bits() / 8
+		if prefix.Bits()%8 != 0 {
+			startByte++
+		}
+		if startByte > 15 {
+			startByte = 15
+		}
+		result := make([]string, 0, count)
+		seen := make(map[string]struct{}, count)
+		for i := 0; i < count; i++ {
+			var b [16]byte = base
+			for j := startByte; j < 16; j++ {
+				b[j] = byte(randInt(256))
+			}
+			ip := netip.AddrFrom16(b)
+			s := ip.String()
+			if _, ok := seen[s]; !ok {
+				seen[s] = struct{}{}
+				result = append(result, s)
+			}
+		}
+		return result
+	}
 	if prefix.Addr().Is4() {
 		hostBits = 32 - prefix.Bits()
 	} else {
@@ -390,9 +425,6 @@ func sampleRange(cidr string, count int) []string {
 	}
 	if hostBits < 2 {
 		return nil
-	}
-	if hostBits > 30 {
-		hostBits = 30
 	}
 	total := uint64(1) << uint(hostBits)
 	if total <= 2 {
@@ -533,7 +565,9 @@ func measureThroughput(ip string, port int, serverName string, timeout time.Dura
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout))
 
-	cfg := getTLSConfig(serverName)
+	// SNI هم باید speed.cloudflare.com باشه چون Cloudflare بر اساس
+	// SNI مسیریابی می‌کنه و Host header تنها کافی نیست.
+	cfg := getTLSConfig("speed.cloudflare.com")
 	tlsConn := tls.Client(conn, cfg)
 	if err := tlsConn.Handshake(); err != nil {
 		return 0
@@ -542,7 +576,7 @@ func measureThroughput(ip string, port int, serverName string, timeout time.Dura
 
 	// درخواست دانلود ۱۰۰ کیلوبایت
 	req := "GET /__down?bytes=100000 HTTP/1.1\r\n" +
-		"Host: " + serverName + "\r\n" +
+		"Host: speed.cloudflare.com\r\n" +
 		"User-Agent: Mozilla/5.0\r\n" +
 		"Accept: */*\r\n" +
 		"Connection: close\r\n\r\n"
@@ -662,6 +696,18 @@ var (
 	xrayPathCached string
 	xrayPathDone   bool
 )
+
+// findFreeSocksPort — یک پورت آزاد واقعی پیدا می‌کنه.
+// جلوگیری از تداخل Xray های موازی روی پورت SOCKS.
+func findFreeSocksPort() int {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
+}
 
 func findXrayBinary() string {
 	xrayPathMutex.Lock()
@@ -1313,6 +1359,8 @@ func testWithXray(configURI, ip string, port, socksPort int, timeout time.Durati
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
 		}
+		// مکث کوتاه تا پورت و فایل temp آزاد بشن.
+		time.Sleep(50 * time.Millisecond)
 	}()
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -1554,22 +1602,22 @@ func parseSS(cfg string) (ParsedConfig, error) {
 	return ParsedConfig{Raw: cfg, Proto: "ss", Addr: host, Port: port}, nil
 }
 
-func replaceConfig(cfg string, newIP string) (string, error) {
+func replaceConfig(cfg string, newIP string, newPort int, customDomain string) (string, error) {
 	cfg = strings.TrimSpace(cfg)
 	switch {
 	case strings.HasPrefix(cfg, "vmess://"):
-		return replaceVmess(cfg, newIP)
+		return replaceVmess(cfg, newIP, newPort, customDomain)
 	case strings.HasPrefix(cfg, "vless://"):
-		return replaceURI(cfg, newIP)
+		return replaceURI(cfg, newIP, newPort)
 	case strings.HasPrefix(cfg, "trojan://"):
-		return replaceURI(cfg, newIP)
+		return replaceURI(cfg, newIP, newPort)
 	case strings.HasPrefix(cfg, "ss://"):
-		return replaceSS(cfg, newIP)
+		return replaceSS(cfg, newIP, newPort)
 	}
 	return "", fmt.Errorf("unsupported")
 }
 
-func replaceVmess(cfg, newIP string) (string, error) {
+func replaceVmess(cfg, newIP string, newPort int, customDomain string) (string, error) {
 	body := strings.TrimPrefix(cfg, "vmess://")
 	data, err := b64Decode(body)
 	if err != nil {
@@ -1580,6 +1628,17 @@ func replaceVmess(cfg, newIP string) (string, error) {
 		return "", err
 	}
 	obj["add"] = newIP
+	if newPort > 0 {
+		obj["port"] = newPort
+	}
+	if customDomain != "" {
+		if host, ok := obj["host"].(string); ok && host != "" {
+			obj["host"] = workersDevRegex.ReplaceAllString(host, customDomain)
+		}
+		if sni, ok := obj["sni"].(string); ok && sni != "" {
+			obj["sni"] = workersDevRegex.ReplaceAllString(sni, customDomain)
+		}
+	}
 	newData, err := json.Marshal(obj)
 	if err != nil {
 		return "", err
@@ -1587,7 +1646,7 @@ func replaceVmess(cfg, newIP string) (string, error) {
 	return "vmess://" + base64.StdEncoding.EncodeToString(newData), nil
 }
 
-func replaceURI(cfg, newIP string) (string, error) {
+func replaceURI(cfg, newIP string, newPort int) (string, error) {
 	schemeEnd := strings.Index(cfg, "://")
 	if schemeEnd < 0 {
 		return "", fmt.Errorf("invalid")
@@ -1612,14 +1671,18 @@ func replaceURI(cfg, newIP string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	portToUse := portStr
+	if newPort > 0 {
+		portToUse = strconv.Itoa(newPort)
+	}
 	newHost := newIP
 	if strings.Contains(newIP, ":") {
 		newHost = "[" + newIP + "]"
 	}
-	return prefix + rest[:at+1] + newHost + ":" + portStr + afterAt[endIdx:], nil
+	return prefix + rest[:at+1] + newHost + ":" + portToUse + afterAt[endIdx:], nil
 }
 
-func replaceSS(cfg, newIP string) (string, error) {
+func replaceSS(cfg, newIP string, newPort int) (string, error) {
 	body := strings.TrimPrefix(cfg, "ss://")
 	var fragment string
 	if i := strings.Index(body, "#"); i >= 0 {
@@ -1627,7 +1690,7 @@ func replaceSS(cfg, newIP string) (string, error) {
 		body = body[:i]
 	}
 	if strings.Contains(body, "@") {
-		return replaceURI("ss://"+body+fragment, newIP)
+		return replaceURI("ss://"+body+fragment, newIP, newPort)
 	}
 	data, err := b64Decode(body)
 	if err != nil {
@@ -1643,7 +1706,15 @@ func replaceSS(cfg, newIP string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	newData := s[:at+1] + newIP + ":" + portStr
+	portToUse := portStr
+	if newPort > 0 {
+		portToUse = strconv.Itoa(newPort)
+	}
+	newHost := newIP
+	if strings.Contains(newIP, ":") {
+		newHost = "[" + newIP + "]"
+	}
+	newData := s[:at+1] + newHost + ":" + portToUse
 	return "ss://" + base64.StdEncoding.EncodeToString([]byte(newData)) + fragment, nil
 }
 
@@ -1755,7 +1826,7 @@ func combineConfigs(configsText string, results []QualityResult, customDomain st
 			continue
 		}
 		for _, r := range results {
-			newCfg, err := replaceConfig(p.Raw, r.IP)
+			newCfg, err := replaceConfig(p.Raw, r.IP, r.Port, customDomain)
 			if err != nil {
 				continue
 			}
@@ -2019,7 +2090,10 @@ func scan(candidates []string, opts ScanOptions) []QualityResult {
 				if isCancelled() {
 					return
 				}
-				tunnelPort := SocksPort + idx
+				tunnelPort := findFreeSocksPort()
+				if tunnelPort == 0 {
+					return
+				}
 				lat := testWithXray(firstTestable, final[idx].IP, final[idx].Port,
 					tunnelPort, 8*time.Second, opts.SmartFragment, "", opts.ECHConfig)
 				if lat != nil {
@@ -2120,7 +2194,6 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var req ScanRequest
 	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ScanResponse{Error: err.Error()})
 		return
@@ -2250,12 +2323,6 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	xrayFiltered := false
 	xrayPassed := 0
 	firstTestable := firstTestableConfig(req.Config)
-	testedProto := ""
-	if firstTestable != "" {
-		if i := strings.Index(firstTestable, "://"); i > 0 {
-			testedProto = firstTestable[:i]
-		}
-	}
 	if req.UseXray && firstTestable != "" && findXrayBinary() != "" {
 		xrayFiltered = true
 		filtered := make([]QualityResult, 0)
@@ -2272,9 +2339,9 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		combineInput = results
 	} else {
 		combineInput = results
-		testedProto = ""
 	}
-	combined := combineConfigs(req.Config, combineInput, req.CustomDomain, testedProto)
+	// onlyProto خالی تا همه پروتکل‌ها ترکیب بشن، نه فقط اولی.
+	combined := combineConfigs(req.Config, combineInput, req.CustomDomain, "")
 
 	writeJSON(w, http.StatusOK, ScanResponse{
 		TotalTested: len(candidates), TotalAlive: alive,
@@ -2352,7 +2419,7 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 			sb.WriteString(fmt.Sprintf("  - name: \"clean-%d\"\n", i+1))
 			sb.WriteString(fmt.Sprintf("    type: vless\n"))
 			sb.WriteString(fmt.Sprintf("    server: %s\n", c.IP))
-			sb.WriteString(fmt.Sprintf("    port: %d\n", 443))
+			sb.WriteString(fmt.Sprintf("    port: %d\n", c.Port))
 			sb.WriteString("    udp: true\n")
 			sb.WriteString("    tls: true\n")
 		}
@@ -2507,6 +2574,13 @@ func main() {
 	select {
 	case <-shutdownRequested:
 	case <-sigCh:
+	}
+	// ذخیره تاریخچه روی هر مسیر خروج.
+	historyMutex.Lock()
+	hasHistory := len(historyData) > 0
+	historyMutex.Unlock()
+	if hasHistory {
+		saveHistory()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

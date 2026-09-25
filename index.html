@@ -863,19 +863,18 @@
             applyLang(current === 'fa' ? 'en' : 'fa');
         }
 
-        (function() {
+        window.addEventListener('DOMContentLoaded', function() {
             let lang = localStorage.getItem('cleanip-lang');
             if (!lang) {
                 lang = (navigator.language || 'fa').toLowerCase().startsWith('fa') ? 'fa' : 'en';
             }
             applyLang(lang);
-        })();
+        });
 
         // ================================================
         // NOTE: these MUST be 'var', not 'let'.
-        // The IIFE above (applyLang → updateXrayState) runs before
-        // these lines are reached, and it touches xrayTogglesInitialized.
-        // Using 'let' triggers a TDZ ReferenceError and kills the script.
+        // The DOMContentLoaded listener above calls applyLang → updateXrayState,
+        // 'let' would throw a TDZ ReferenceError before this line runs.
         var scanResults = [];
         var combinedConfigs = [];
         var scanningInProgress = false;
@@ -905,7 +904,7 @@
             }
         };
 
-        function applyPreset(name) {
+        function applyPreset(name, silent) {
             const p = PRESETS[name];
             if (!p) return;
 
@@ -935,9 +934,10 @@
 
             xrayTogglesInitialized = false;
             if (typeof updateXrayState === 'function') updateXrayState();
-
-            toast(t('preset.' + name) + ' ' + t('preset.applied'));
-        }
+            if (!silent) {
+                toast(t('preset.' + name) + ' ' + t('preset.applied'));
+         }
+         }
 
         document.querySelectorAll('.preset').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -948,7 +948,7 @@
         });
 
         window.addEventListener('DOMContentLoaded', () => {
-            applyPreset('balanced');
+            applyPreset('balanced', true);
         });
 
         function setActiveStep(step) {
@@ -1006,19 +1006,12 @@
                 desc2.textContent = t('xray.valid.short');
 
                 if (!xrayTogglesInitialized) {
-                    // Defensive: PRESETS is a const declared later in the
-                    // script. `typeof` on a const in TDZ throws a
-                    // ReferenceError. Catch it just in case.
-                    try {
-                        const active = document.querySelector('.preset.active');
-                        if (active && typeof PRESETS !== 'undefined') {
-                            const p = PRESETS[active.dataset.preset];
-                            if (p) {
-                                useXrayEl.checked  = p.use_xray;
-                                if (onlyXrayEl) onlyXrayEl.checked = p.only_xray;
-                            }
-                        }
-                    } catch (e) { /* PRESETS not yet initialized */ }
+                    const active = document.querySelector('.preset.active');
+                    if (active && PRESETS[active.dataset.preset]) {
+                        const p = PRESETS[active.dataset.preset];
+                        useXrayEl.checked  = p.use_xray;
+                        if (onlyXrayEl) onlyXrayEl.checked = p.only_xray;
+                    }
                     xrayTogglesInitialized = true;
                 }
             }
@@ -1198,6 +1191,7 @@
                 document.getElementById("results-section").classList.remove("hidden");
 
                 const hasConfigInput = document.getElementById("v2ray-config").value.trim().length > 0;
+
                 if (hasConfigInput) {
                     combinedConfigs = data.combined || [];
                     document.getElementById("combined-count").textContent = combinedConfigs.length;
@@ -1285,10 +1279,12 @@
 
         function copyIps() {
             if (!scanResults.length) return alert(t('alert.emptyList'));
-            const text = scanResults.map(r => r.ip).join("\n");
+            const text = scanResults.map(r => {
+                const ip = r.ip.indexOf(':') >= 0 ? '[' + r.ip + ']' : r.ip;
+                return ip + ':' + (r.port || 443);
+            }).join("\n");
             navigator.clipboard.writeText(text).then(() => toast(t('toast.ipsCopied')));
         }
-
 
         function copyAllCombined() {
             if (!combinedConfigs.length) return alert(t('alert.noConfig'));
@@ -1373,120 +1369,103 @@
             e.returnValue = "";
         });
 
-        // ============================================================
-        // Combined display filter
-        // ============================================================
-function renderCombinedList() {
-    const list = document.getElementById('combined-list');
-    if (!list) return;
+        function renderCombinedList() {
+            const list = document.getElementById('combined-list');
+            if (!list) return;
 
-    const onlyXray   = document.getElementById('cf-only-xray');
-    const zeroLoss   = document.getElementById('cf-zero-loss');
-    const onlyV4     = document.getElementById('cf-ipv4');
-    const onlyV6     = document.getElementById('cf-ipv6');
-    const maxLatEl   = document.getElementById('cf-max-lat');
-    const minScoreEl = document.getElementById('cf-min-score');
-    const protoEl    = document.getElementById('cf-proto');
-    const searchEl   = document.getElementById('cf-search');
-    const countEl    = document.getElementById('cf-count');
-    const hiddenEl   = document.getElementById('cf-hidden');
+            const onlyXray   = document.getElementById('cf-only-xray');
+            const zeroLoss   = document.getElementById('cf-zero-loss');
+            const onlyV4     = document.getElementById('cf-ipv4');
+            const onlyV6     = document.getElementById('cf-ipv6');
+            const maxLatEl   = document.getElementById('cf-max-lat');
+            const minScoreEl = document.getElementById('cf-min-score');
+            const protoEl    = document.getElementById('cf-proto');
+            const searchEl   = document.getElementById('cf-search');
+            const countEl    = document.getElementById('cf-count');
+            const hiddenEl   = document.getElementById('cf-hidden');
 
-    const fOnlyXray  = !!(onlyXray   && onlyXray.checked);
-    const fZeroLoss  = !!(zeroLoss   && zeroLoss.checked);
-    const fV4        = !!(onlyV4     && onlyV4.checked);
-    const fV6        = !!(onlyV6     && onlyV6.checked);
-    const fMaxLat    = maxLatEl   ? (parseFloat(maxLatEl.value)   || 0) : 0;
-    const fMinScore  = minScoreEl ? (parseFloat(minScoreEl.value) || 0) : 0;
-    const fProto     = protoEl    ? (protoEl.value || '') : '';
-    const fSearch    = searchEl   ? searchEl.value.trim().toLowerCase() : '';
+            const fOnlyXray  = !!(onlyXray   && onlyXray.checked);
+            const fZeroLoss  = !!(zeroLoss   && zeroLoss.checked);
+            const fV4        = !!(onlyV4     && onlyV4.checked);
+            const fV6        = !!(onlyV6     && onlyV6.checked);
+            const fMaxLat    = maxLatEl   ? (parseFloat(maxLatEl.value)   || 0) : 0;
+            const fMinScore  = minScoreEl ? (parseFloat(minScoreEl.value) || 0) : 0;
+            const fProto     = protoEl    ? (protoEl.value || '') : '';
+            const fSearch    = searchEl   ? searchEl.value.trim().toLowerCase() : '';
 
-    const anyActive = fOnlyXray || fZeroLoss || fV4 || fV6 ||
-                      fMaxLat > 0 || fMinScore > 0 || fProto !== '' || fSearch !== '';
+            const anyActive = fOnlyXray || fZeroLoss || fV4 || fV6 ||
+                              fMaxLat > 0 || fMinScore > 0 || fProto !== '' || fSearch !== '';
 
-    const total = combinedConfigs.length;
-    const filtered = [];
+            const total = combinedConfigs.length;
+            const filtered = [];
 
-    for (const c of combinedConfigs) {
-        if (fOnlyXray && c.xray_success !== true) continue;
-        if (fZeroLoss && (c.packet_loss || 0) > 0) continue;
-        if (fV4 && !fV6 && typeof c.ip === 'string' && c.ip.indexOf(':') >= 0) continue;
-        if (fV6 && !fV4 && (typeof c.ip !== 'string' || c.ip.indexOf(':') < 0)) continue;
-        if (fMaxLat   > 0 && (c.latency_ms || 0) > fMaxLat)   continue;
-        if (fMinScore > 0 && (c.score     || 0) < fMinScore)  continue;
-        if (fProto && c.proto !== fProto) continue;
-        if (fSearch) {
-            const hay = ((c.config || '') + ' ' + (c.ip || '')).toLowerCase();
-            if (hay.indexOf(fSearch) < 0) continue;
+            for (const c of combinedConfigs) {
+                if (fOnlyXray && c.xray_success !== true) continue;
+                if (fZeroLoss && (c.packet_loss || 0) > 0) continue;
+                if (fV4 && !fV6 && typeof c.ip === 'string' && c.ip.indexOf(':') >= 0) continue;
+                if (fV6 && !fV4 && (typeof c.ip !== 'string' || c.ip.indexOf(':') < 0)) continue;
+                if (fMaxLat   > 0 && (c.latency_ms || 0) > fMaxLat)   continue;
+                if (fMinScore > 0 && (c.score     || 0) < fMinScore)  continue;
+                if (fProto && c.proto !== fProto) continue;
+                if (fSearch) {
+                    const hay = ((c.config || '') + ' ' + (c.ip || '')).toLowerCase();
+                    if (hay.indexOf(fSearch) < 0) continue;
+                }
+                filtered.push(c);
+            }
+
+            const hidden = total - filtered.length;
+
+            if (countEl) {
+                countEl.textContent = filtered.length + ' / ' + total;
+            }
+            if (hiddenEl) {
+                if (!anyActive || hidden === 0) {
+                    hiddenEl.textContent = '';
+                    hiddenEl.className = 'cf-hidden';
+                } else {
+                    hiddenEl.textContent = '− ' + hidden;
+                    hiddenEl.className = 'cf-hidden active';
+                }
+            }
+
+            list.innerHTML = '';
+
+            if (filtered.length === 0) {
+                const div = document.createElement('div');
+                div.className = 'combined-empty strict';
+                div.innerHTML =
+                    '<div class="empty-icon">🧹</div>' +
+                    '<h3>' + escapeHtml(t('cf.noMatch'))     + '</h3>' +
+                    '<p>'  + escapeHtml(t('cf.noMatchDesc')) + '</p>';
+                list.appendChild(div);
+                return;
+            }
+
+            filtered.forEach((c, i) => {
+                const origIdx = combinedConfigs.indexOf(c);
+                let xrayBadge = '';
+                if (c.xray_success === true)       xrayBadge = ' <span class="xray-ok" title="Xray OK">✅</span>';
+                else if (c.xray_success === false) xrayBadge = ' <span class="xray-fail" title="Xray failed">❌</span>';
+
+                const div = document.createElement('div');
+                div.className = 'combined-item';
+                div.innerHTML =
+                    '<div class="combined-header">' +
+                        '<span class="combined-index">#' + (i + 1) + '</span>' +
+                        '<span class="proto-tag">'        + escapeHtml(c.proto) + '</span>' +
+                        '<span class="combined-ip">'      + escapeHtml(c.ip) + xrayBadge + '</span>' +
+                        '<span class="combined-latency">' + fmt(c.latency_ms, 1) + ' ms</span>' +
+                    '</div>' +
+                    '<div class="combined-config" title="' + escapeHtml(c.config) + '">' +
+                        escapeHtml(c.config) +
+                    '</div>' +
+                    '<button class="copy-one" onclick="copyOne(' + origIdx + ')">' +
+                        t('btn.copyOne') +
+                    '</button>';
+                list.appendChild(div);
+            });
         }
-        filtered.push(c);
-    }
-
-    const hidden = total - filtered.length;
-
-    if (countEl) {
-        countEl.textContent = filtered.length + ' / ' + total;
-    }
-    if (hiddenEl) {
-        if (!anyActive || hidden === 0) {
-            hiddenEl.textContent = '';
-            hiddenEl.className = 'cf-hidden';
-        } else {
-            hiddenEl.textContent = '− ' + hidden;
-            hiddenEl.className = 'cf-hidden active';
-        }
-    }
-
-    list.innerHTML = '';
-
-    if (filtered.length === 0) {
-        const div = document.createElement('div');
-        div.className = 'combined-empty strict';
-        div.innerHTML =
-            '<div class="empty-icon">🧹</div>' +
-            '<h3>' + escapeHtml(t('cf.noMatch'))     + '</h3>' +
-            '<p>'  + escapeHtml(t('cf.noMatchDesc')) + '</p>';
-        list.appendChild(div);
-        return;
-    }
-
-    filtered.forEach((c, i) => {
-        const origIdx = combinedConfigs.indexOf(c);
-        // small xray status badge
-        let xrayBadge = '';
-        if (c.xray_success === true)       xrayBadge = ' <span class="xray-ok" title="Xray OK">✅</span>';
-        else if (c.xray_success === false) xrayBadge = ' <span class="xray-fail" title="Xray failed">❌</span>';
-
-        const div = document.createElement('div');
-        div.className = 'combined-item';
-        div.innerHTML =
-            '<div class="combined-header">' +
-                '<span class="combined-index">#' + (i + 1) + '</span>' +
-                '<span class="proto-tag">'        + escapeHtml(c.proto) + '</span>' +
-                '<span class="combined-ip">'      + escapeHtml(c.ip) + xrayBadge + '</span>' +
-                '<span class="combined-latency">' + fmt(c.latency_ms, 1) + ' ms</span>' +
-            '</div>' +
-            '<div class="combined-config" title="' + escapeHtml(c.config) + '">' +
-                escapeHtml(c.config) +
-            '</div>' +
-            '<button class="copy-one" onclick="copyOne(' + origIdx + ')">' +
-                t('btn.copyOne') +
-            '</button>';
-        list.appendChild(div);
-    });
-
-    try {
-        console.log('[filter] total=' + total +
-                    ' shown=' + filtered.length +
-                    ' hidden=' + hidden +
-                    ' xray=' + fOnlyXray +
-                    ' loss=' + fZeroLoss +
-                    ' v4=' + fV4 + ' v6=' + fV6 +
-                    ' maxLat=' + fMaxLat +
-                    ' minScore=' + fMinScore +
-                    ' proto="' + fProto + '"' +
-                    ' search="' + fSearch + '"');
-    } catch (_) {}
-}
 
         function resetCombinedFilter() {
             const ids = ['cf-only-xray','cf-zero-loss','cf-ipv4','cf-ipv6'];
@@ -1501,7 +1480,7 @@ function renderCombinedList() {
             renderCombinedList();
         }
 
-                (function attachCombinedFilter() {
+        (function attachCombinedFilter() {
             const ids = ['cf-only-xray','cf-zero-loss','cf-ipv4','cf-ipv6',
                          'cf-max-lat','cf-min-score','cf-proto','cf-search'];
             function bind() {
@@ -1516,11 +1495,7 @@ function renderCombinedList() {
             if (!bind()) window.addEventListener('DOMContentLoaded', bind);
         })();
 
-
-        // ============================================================
-        // Combined list — diagnostic helpers
-        // ============================================================
-function combinedXrayStats() {
+        function combinedXrayStats() {
             if (typeof combinedConfigs === 'undefined' || !combinedConfigs.length) {
                 return { total: 0, ok: 0, fail: 0, unknown: 0 };
             }
@@ -1530,9 +1505,7 @@ function combinedXrayStats() {
                 else if (c.xray_success === false) fail++;
                 else                                unknown++;
             }
-            const r = { total: combinedConfigs.length, ok: ok, fail: fail, unknown: unknown };
-            console.log('[xray-stats]', r);
-            return r;
+            return { total: combinedConfigs.length, ok: ok, fail: fail, unknown: unknown };
         }
 
     </script>

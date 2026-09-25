@@ -221,7 +221,7 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 MIT — see [LICENSE](LICENSE).
 
-Copyright © 2025 **Meysam Khademshams (میثم خادم شمس)**
+Copyright © 2026 **Meysam Khademshams (میثم خادم شمس)**
 
 ## 🙏 Credits
 
