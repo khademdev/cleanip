@@ -85,9 +85,18 @@ type HistoryEntry struct {
 	AvgLatency float64 `json:"avg_latency"`
 }
 
+// scanState bundles the cancel channel for the currently-running scan
+// so that scanHandler and cancelHandler share a single source of truth.
+// Using sync.Once guarantees the channel is closed exactly once even if
+// multiple cancel requests arrive concurrently.
+type scanState struct {
+	cancelCh   chan struct{}
+	cancelOnce sync.Once
+}
+
 var (
 	scanProgress atomic.Value
-	scanCancel   atomic.Value
+	currentScan  atomic.Pointer[scanState]
 
 	historyMutex sync.Mutex
 	historyData  = map[string]HistoryEntry{}
@@ -116,14 +125,23 @@ var (
 
 	sharedDialer = &net.Dialer{KeepAlive: 30 * time.Second}
 
-	cachedRanges []string
-	rangesMutex  sync.Mutex
-	rng          = rand.New(rand.NewSource(time.Now().UnixNano()))
-	rngMutex     sync.Mutex
+	cachedRanges   []string
+	cachedRangesAt time.Time
+	rangesMutex    sync.Mutex
+	rng            = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rngMutex       sync.Mutex
 
-	tlsConfigCache  sync.Map
+	// tlsConfigCache uses atomic.Pointer so that clearTLSCache can swap
+	// the entire map atomically. This avoids the race between Range+Delete
+	// on sync.Map and concurrent LoadOrStore calls.
+	tlsConfigCache  atomic.Pointer[map[string]*tls.Config]
 	workersDevRegex = regexp.MustCompile(`(?i)[a-zA-Z0-9][a-zA-Z0-9-]*(\.[a-zA-Z0-9][a-zA-Z0-9-]*)*\.workers\.dev`)
 )
+
+func init() {
+	empty := make(map[string]*tls.Config)
+	tlsConfigCache.Store(&empty)
+}
 
 // ==================== PROGRESS & CANCEL ====================
 var progressMu sync.Mutex
@@ -159,16 +177,12 @@ func getProgress() Progress {
 }
 
 func isCancelled() bool {
-	v := scanCancel.Load()
-	if v == nil {
-		return false
-	}
-	ch, ok := v.(chan struct{})
-	if !ok || ch == nil {
+	state := currentScan.Load()
+	if state == nil || state.cancelCh == nil {
 		return false
 	}
 	select {
-	case <-ch:
+	case <-state.cancelCh:
 		return true
 	default:
 		return false
@@ -176,6 +190,15 @@ func isCancelled() bool {
 }
 
 // ==================== HISTORY ====================
+//
+// PRIVACY CONTRACT:
+// History persistence is strictly opt-in. `updateHistory` mutates only
+// in-memory state and MUST be gated behind opts.HistoryAllowed.
+// `saveHistory` writes to disk and MUST only run when the last scan
+// explicitly set history_allowed=true (tracked via lastScanAllowedHistory).
+// When the user opts out, we also clear any previously-loaded in-memory
+// history so it cannot be accidentally persisted on shutdown.
+
 func loadHistory() {
 	f, err := os.Open(HistoryFile)
 	if err != nil {
@@ -190,6 +213,10 @@ func loadHistory() {
 	}
 }
 
+// saveHistory writes the in-memory history map to disk.
+//
+// PRIVACY CONTRACT: callers must ensure the user opted in. See the
+// package-level comment above for details.
 func saveHistory() {
 	historyMutex.Lock()
 	cutoff := time.Now().Add(-7 * 24 * time.Hour)
@@ -214,6 +241,9 @@ func saveHistory() {
 	_ = json.NewEncoder(f).Encode(data)
 }
 
+// updateHistory mutates the in-memory history map.
+//
+// PRIVACY CONTRACT: callers MUST gate this behind opts.HistoryAllowed.
 func updateHistory(ip string, port int, success bool, latency float64) {
 	historyMutex.Lock()
 	defer historyMutex.Unlock()
@@ -236,6 +266,14 @@ func updateHistory(ip string, port int, success bool, latency float64) {
 		}
 	}
 	historyData[key] = e
+}
+
+// clearHistoryInMemory wipes in-memory history. Used when the user
+// opts out of persistence on a fresh scan.
+func clearHistoryInMemory() {
+	historyMutex.Lock()
+	historyData = map[string]HistoryEntry{}
+	historyMutex.Unlock()
 }
 
 // ==================== HELPERS ====================
@@ -292,12 +330,20 @@ func calculateJitterStdDev(latencies []float64) float64 {
 	return math.Sqrt(variance / float64(len(latencies)))
 }
 
+// firstNonEmpty returns the first non-empty string from the list.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // ==================== TLS CONFIG ====================
 func clearTLSCache() {
-	tlsConfigCache.Range(func(k, v interface{}) bool {
-		tlsConfigCache.Delete(k)
-		return true
-	})
+	empty := make(map[string]*tls.Config)
+	tlsConfigCache.Store(&empty)
 }
 
 func getTLSConfig(serverName string, fps ...string) *tls.Config {
@@ -309,8 +355,10 @@ func getTLSConfig(serverName string, fps ...string) *tls.Config {
 		fingerprint = "chrome"
 	}
 	key := serverName + "|" + fingerprint
-	if v, ok := tlsConfigCache.Load(key); ok {
-		return v.(*tls.Config)
+	if m := tlsConfigCache.Load(); m != nil {
+		if v, ok := (*m)[key]; ok {
+			return v
+		}
 	}
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
@@ -336,21 +384,45 @@ func getTLSConfig(serverName string, fps ...string) *tls.Config {
 	default:
 		cfg.NextProtos = []string{"h2", "http/1.1"}
 	}
-	actual, _ := tlsConfigCache.LoadOrStore(key, cfg)
-	return actual.(*tls.Config)
+	// Copy-on-write insert with CAS. On CAS failure, another goroutine
+	// inserted concurrently, so retry — a lost update just means one
+	// extra TLS handshake, which is harmless.
+	for {
+		oldMapPtr := tlsConfigCache.Load()
+		if oldMapPtr == nil {
+			single := map[string]*tls.Config{key: cfg}
+			tlsConfigCache.Store(&single)
+			return cfg
+		}
+		oldMap := *oldMapPtr
+		if v, ok := oldMap[key]; ok {
+			return v
+		}
+		newMap := make(map[string]*tls.Config, len(oldMap)+1)
+		for k, v := range oldMap {
+			newMap[k] = v
+		}
+		newMap[key] = cfg
+		if tlsConfigCache.CompareAndSwap(oldMapPtr, &newMap) {
+			return cfg
+		}
+	}
 }
 
 // ==================== RANGES ====================
+const rangesTTL = time.Hour
+
 func invalidateRanges() {
 	rangesMutex.Lock()
 	cachedRanges = nil
+	cachedRangesAt = time.Time{}
 	rangesMutex.Unlock()
 }
 
 func fetchRanges(useIPv6 bool) []string {
 	rangesMutex.Lock()
 	defer rangesMutex.Unlock()
-	if cachedRanges != nil {
+	if cachedRanges != nil && time.Since(cachedRangesAt) < rangesTTL {
 		return cachedRanges
 	}
 
@@ -382,6 +454,7 @@ func fetchRanges(useIPv6 bool) []string {
 	if useIPv6 && len(data.Result.IPv6) > 0 {
 		cachedRanges = append(cachedRanges, data.Result.IPv6...)
 	}
+	cachedRangesAt = time.Now()
 	return cachedRanges
 }
 
@@ -913,6 +986,7 @@ func buildStreamSettings(network, security, sni, path, hostHeader, serviceName, 
 
 	return ss
 }
+
 func vlessToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testSNI, echConfig string) ([]byte, error) {
 	u := strings.TrimPrefix(uri, "vless://")
 	if i := strings.Index(u, "#"); i >= 0 {
@@ -982,6 +1056,7 @@ func vlessToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, te
 	}
 	return json.Marshal(config)
 }
+
 func trojanToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testSNI, echConfig string) ([]byte, error) {
 	u := strings.TrimPrefix(uri, "trojan://")
 	if i := strings.Index(u, "#"); i >= 0 {
@@ -1055,6 +1130,7 @@ func trojanToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, t
 	}
 	return json.Marshal(config)
 }
+
 func vmessToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testSNI, echConfig string) ([]byte, error) {
 	body := strings.TrimPrefix(uri, "vmess://")
 	data, err := b64Decode(body)
@@ -1249,6 +1325,7 @@ func ssToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testS
 	}
 	return json.Marshal(config)
 }
+
 func resolveFragment(params map[string]string, smartFragment bool) (string, string, string) {
 	fragPackets := params["fragment"]
 	if fragPackets == "" {
@@ -1312,6 +1389,7 @@ func configToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, t
 	}
 	return nil, fmt.Errorf("unsupported protocol")
 }
+
 func testWithXray(configURI, ip string, port, socksPort int, timeout time.Duration, smartFragment bool, testSNI, echConfig string) *float64 {
 	validPrefixes := []string{"vless://", "trojan://", "vmess://", "ss://"}
 	valid := false
@@ -1333,12 +1411,14 @@ func testWithXray(configURI, ip string, port, socksPort int, timeout time.Durati
 	if err != nil {
 		return nil
 	}
+	// 0600: temp config may contain UUID/password; keep it private.
 	tmp, err := os.CreateTemp("", "xray-*.json")
 	if err != nil {
 		return nil
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
+	_ = tmp.Chmod(0o600)
 	if _, err := tmp.Write(jsonCfg); err != nil {
 		tmp.Close()
 		return nil
@@ -1390,6 +1470,7 @@ func testWithXray(configURI, ip string, port, socksPort int, timeout time.Durati
 	_ = tlsConn.Close()
 	return &lat
 }
+
 func dialSOCKS5(proxyAddr, targetAddr string, timeout time.Duration) (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", proxyAddr, timeout)
 	if err != nil {
@@ -1763,6 +1844,7 @@ func firstTestableConfig(text string) string {
 	}
 	return ""
 }
+
 func extractSNI(cfg string) string {
 	cfg = firstTestableConfig(cfg)
 	if cfg == "" {
@@ -1840,7 +1922,13 @@ func combineConfigs(configsText string, results []QualityResult, customDomain st
 			})
 		}
 	}
-	sort.Slice(combined, func(i, j int) bool { return combined[i].Score > combined[j].Score })
+	// Stable sort keeps deterministic order across runs when scores tie.
+	sort.SliceStable(combined, func(i, j int) bool {
+		if combined[i].Score != combined[j].Score {
+			return combined[i].Score > combined[j].Score
+		}
+		return combined[i].IP < combined[j].IP
+	})
 	return combined
 }
 
@@ -1879,8 +1967,9 @@ func scan(candidates []string, opts ScanOptions) []QualityResult {
 		testSNI = opts.CustomDomain
 	}
 
-	// History: IPهای موفق قبلی اول تست می‌شن
-	if opts.UseHistory {
+	// History: IPهای موفق قبلی اول تست می‌شن.
+	// Privacy: only consult history when the user has opted in.
+	if opts.UseHistory && opts.HistoryAllowed {
 		historyMutex.Lock()
 		known := make(map[string]bool)
 		for k, e := range historyData {
@@ -2090,12 +2179,21 @@ func scan(candidates []string, opts ScanOptions) []QualityResult {
 				if isCancelled() {
 					return
 				}
-				tunnelPort := findFreeSocksPort()
-				if tunnelPort == 0 {
-					return
+				// Retry: findFreeSocksPort is TOCTOU-racy (between
+				// ln.Close and Xray binding, another process can grab
+				// the port). Up to 3 attempts with fresh ports each time.
+				var lat *float64
+				for attempt := 0; attempt < 3 && lat == nil; attempt++ {
+					if isCancelled() {
+						return
+					}
+					tunnelPort := findFreeSocksPort()
+					if tunnelPort == 0 {
+						continue
+					}
+					lat = testWithXray(firstTestable, final[idx].IP, final[idx].Port,
+						tunnelPort, 8*time.Second, opts.SmartFragment, "", opts.ECHConfig)
 				}
-				lat := testWithXray(firstTestable, final[idx].IP, final[idx].Port,
-					tunnelPort, 8*time.Second, opts.SmartFragment, "", opts.ECHConfig)
 				if lat != nil {
 					final[idx].TunnelLatency = lat
 					success := true
@@ -2106,11 +2204,15 @@ func scan(candidates []string, opts ScanOptions) []QualityResult {
 						final[idx].SpeedMbps = mbps
 					}
 					final[idx].Score = calculateScore(final[idx])
-					updateHistory(final[idx].IP, final[idx].Port, true, final[idx].LatencyAvg)
+					if opts.HistoryAllowed {
+						updateHistory(final[idx].IP, final[idx].Port, true, final[idx].LatencyAvg)
+					}
 				} else {
 					failure := false
 					final[idx].XraySuccess = &failure
-					updateHistory(final[idx].IP, final[idx].Port, false, 0)
+					if opts.HistoryAllowed {
+						updateHistory(final[idx].IP, final[idx].Port, false, 0)
+					}
 				}
 			}(i)
 		}
@@ -2187,6 +2289,11 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+var (
+	scanInProgress         atomic.Bool
+	lastScanAllowedHistory atomic.Bool
+)
+
 func scanHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, ScanResponse{Error: "method not allowed"})
@@ -2204,6 +2311,13 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer scanInProgress.Store(false)
+
+	// Privacy: if the user did not allow history persistence, clear any
+	// previously loaded history from memory so it can't be used for
+	// prioritization or accidentally saved on shutdown.
+	if !req.HistoryAllowed {
+		clearHistoryInMemory()
+	}
 
 	if req.Samples <= 0 {
 		req.Samples = DefaultSamples
@@ -2233,7 +2347,7 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		req.Ports = defaultPorts
 	}
 
-	invalidateRanges()
+	// Ranges are now TTL-cached; no need to nuke the cache on every scan.
 	ranges := fetchRanges(req.UseIPv6)
 	candidates := make([]string, 0, len(ranges)*req.Samples)
 	seen := make(map[string]struct{})
@@ -2256,15 +2370,18 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup cancel channel
-	cancelCh := make(chan struct{})
-	cancelMutex.Lock()
-	scanCancel.Store(cancelCh)
-	cancelClosed = false
-	cancelMutex.Unlock()
+	// Setup cancel channel via a single atomic pointer so that
+	// scanHandler and cancelHandler never disagree on which scan
+	// is currently in-flight.
+	newState := &scanState{cancelCh: make(chan struct{})}
+	currentScan.Store(newState)
+	defer currentScan.Store(nil)
 	clearTLSCache()
 	refreshXrayPath()
 	setProgress(Progress{Phase: 1, PhaseName: "شروع", Total: len(candidates), Message: "شروع اسکن..."})
+
+	// Remember this scan's privacy choice for the shutdown path.
+	lastScanAllowedHistory.Store(req.HistoryAllowed)
 
 	t0 := time.Now()
 	timeout := time.Duration(req.Timeout * float64(time.Second))
@@ -2319,29 +2436,23 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 
 	alive := len(results)
 
-	var combineInput []QualityResult
 	xrayFiltered := false
 	xrayPassed := 0
 	firstTestable := firstTestableConfig(req.Config)
 	if req.UseXray && firstTestable != "" && findXrayBinary() != "" {
 		xrayFiltered = true
-		filtered := make([]QualityResult, 0)
 		for _, r := range results {
 			if r.XraySuccess != nil && *r.XraySuccess {
-				filtered = append(filtered, r)
+				xrayPassed++
 			}
 		}
-		xrayPassed = len(filtered)
 		// IMPORTANT: Always include ALL results in combined, regardless of
 		// the OnlyXray flag. The Advanced toggle `only_xray` only affects
 		// the "Top IPs" table on the server side. Combined configs must
 		// contain everything so the client-side filter can toggle freely.
-		combineInput = results
-	} else {
-		combineInput = results
 	}
 	// onlyProto خالی تا همه پروتکل‌ها ترکیب بشن، نه فقط اولی.
-	combined := combineConfigs(req.Config, combineInput, req.CustomDomain, "")
+	combined := combineConfigs(req.Config, results, req.CustomDomain, "")
 
 	writeJSON(w, http.StatusOK, ScanResponse{
 		TotalTested: len(candidates), TotalAlive: alive,
@@ -2351,34 +2462,484 @@ func scanHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// combinedToClashProxy converts an internal CombinedConfig into a
+// Clash.Meta compatible proxy map. Returns nil if the config can't
+// be parsed or the protocol is unsupported.
+func combinedToClashProxy(idx int, c CombinedConfig) map[string]interface{} {
+	parsed, err := parseConfig(c.Config)
+	if err != nil {
+		return nil
+	}
+
+	// Extract the fragment (#name) as the proxy name when present.
+	name := fmt.Sprintf("clean-%d", idx+1)
+	if i := strings.Index(c.Config, "#"); i >= 0 && i < len(c.Config)-1 {
+		if frag, err := urlDecode(c.Config[i+1:]); err == nil && frag != "" {
+			name = frag
+		}
+	}
+
+	proxy := map[string]interface{}{
+		"name":   name,
+		"server": c.IP,
+		"port":   c.Port,
+		"udp":    true,
+	}
+
+	switch parsed.Proto {
+	case "vless":
+		u := strings.TrimPrefix(c.Config, "vless://")
+		if i := strings.IndexAny(u, "#"); i >= 0 {
+			u = u[:i]
+		}
+		var query string
+		if i := strings.Index(u, "?"); i >= 0 {
+			query = u[i+1:]
+			u = u[:i]
+		}
+		at := strings.Index(u, "@")
+		if at < 0 {
+			return nil
+		}
+		uuid := u[:at]
+		params := parseQueryParams(query)
+
+		proxy["type"] = "vless"
+		proxy["uuid"] = uuid
+		proxy["cipher"] = "auto"
+
+		network := params["type"]
+		if network == "" {
+			network = "tcp"
+		}
+		proxy["network"] = network
+
+		if params["security"] == "tls" {
+			proxy["tls"] = true
+			if sni := firstNonEmpty(params["sni"], params["peer"], params["host"]); sni != "" {
+				proxy["servername"] = sni
+			}
+			proxy["skip-cert-verify"] = true
+		} else if params["security"] == "reality" {
+			proxy["tls"] = true
+			proxy["skip-cert-verify"] = true
+			if sni := firstNonEmpty(params["sni"], params["peer"], params["host"]); sni != "" {
+				proxy["servername"] = sni
+			}
+			reality := map[string]interface{}{}
+			if params["pbk"] != "" {
+				reality["public-key"] = params["pbk"]
+			}
+			if params["sid"] != "" {
+				reality["short-id"] = params["sid"]
+			}
+			proxy["reality-opts"] = reality
+		}
+
+		switch network {
+		case "ws":
+			ws := map[string]interface{}{}
+			if params["path"] != "" {
+				ws["path"] = params["path"]
+			}
+			if params["host"] != "" {
+				ws["headers"] = map[string]string{"Host": params["host"]}
+			}
+			proxy["ws-opts"] = ws
+		case "grpc":
+			grpc := map[string]interface{}{}
+			if params["serviceName"] != "" {
+				grpc["grpc-service-name"] = params["serviceName"]
+			}
+			proxy["grpc-opts"] = grpc
+		}
+
+	case "vmess":
+		body := strings.TrimPrefix(c.Config, "vmess://")
+		data, err := b64Decode(body)
+		if err != nil {
+			return nil
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil
+		}
+		uuid, _ := obj["id"].(string)
+		if uuid == "" {
+			return nil
+		}
+
+		proxy["type"] = "vmess"
+		proxy["uuid"] = uuid
+		proxy["alterId"] = 0
+		if aid, ok := obj["aid"].(float64); ok {
+			proxy["alterId"] = int(aid)
+		}
+		proxy["cipher"] = "auto"
+
+		network := "tcp"
+		if n, ok := obj["net"].(string); ok && n != "" {
+			network = n
+		}
+		proxy["network"] = network
+
+		if tls, ok := obj["tls"].(string); ok && tls == "tls" {
+			proxy["tls"] = true
+			proxy["skip-cert-verify"] = true
+			if sni, ok := obj["sni"].(string); ok && sni != "" {
+				proxy["servername"] = sni
+			} else if host, ok := obj["host"].(string); ok && host != "" {
+				proxy["servername"] = host
+			}
+		}
+
+		if network == "ws" {
+			ws := map[string]interface{}{}
+			if p, ok := obj["path"].(string); ok && p != "" {
+				ws["path"] = p
+			}
+			if h, ok := obj["host"].(string); ok && h != "" {
+				ws["headers"] = map[string]string{"Host": h}
+			}
+			proxy["ws-opts"] = ws
+		} else if network == "grpc" {
+			grpc := map[string]interface{}{}
+			if sn, ok := obj["path"].(string); ok && sn != "" {
+				grpc["grpc-service-name"] = sn
+			}
+			proxy["grpc-opts"] = grpc
+		}
+
+	case "trojan":
+		u := strings.TrimPrefix(c.Config, "trojan://")
+		if i := strings.IndexAny(u, "#"); i >= 0 {
+			u = u[:i]
+		}
+		var query string
+		if i := strings.Index(u, "?"); i >= 0 {
+			query = u[i+1:]
+			u = u[:i]
+		}
+		at := strings.Index(u, "@")
+		if at < 0 {
+			return nil
+		}
+		password, err := urlDecode(u[:at])
+		if err != nil {
+			password = u[:at]
+		}
+		params := parseQueryParams(query)
+
+		proxy["type"] = "trojan"
+		proxy["password"] = password
+		proxy["skip-cert-verify"] = true
+
+		if sni := firstNonEmpty(params["sni"], params["peer"], params["host"]); sni != "" {
+			proxy["sni"] = sni
+		}
+		if alpn := params["alpn"]; alpn != "" {
+			proxy["alpn"] = strings.Split(alpn, ",")
+		}
+		if params["type"] == "ws" {
+			proxy["network"] = "ws"
+			ws := map[string]interface{}{}
+			if params["path"] != "" {
+				ws["path"] = params["path"]
+			}
+			if params["host"] != "" {
+				ws["headers"] = map[string]string{"Host": params["host"]}
+			}
+			proxy["ws-opts"] = ws
+		}
+
+	case "ss":
+		body := strings.TrimPrefix(c.Config, "ss://")
+		if i := strings.Index(body, "#"); i >= 0 {
+			body = body[:i]
+		}
+		var method, password string
+		if at := strings.Index(body, "@"); at >= 0 {
+			userinfo := body[:at]
+			if dec, err := b64Decode(userinfo); err == nil {
+				s := string(dec)
+				if i := strings.Index(s, ":"); i >= 0 {
+					method = s[:i]
+					password = s[i+1:]
+				}
+			} else if i := strings.Index(userinfo, ":"); i >= 0 {
+				method = userinfo[:i]
+				password = userinfo[i+1:]
+			}
+		} else {
+			dec, err := b64Decode(body)
+			if err != nil {
+				return nil
+			}
+			s := string(dec)
+			at := strings.LastIndex(s, "@")
+			if at < 0 {
+				return nil
+			}
+			userinfo := s[:at]
+			if i := strings.Index(userinfo, ":"); i >= 0 {
+				method = userinfo[:i]
+				password = userinfo[i+1:]
+			}
+		}
+		if method == "" || password == "" {
+			return nil
+		}
+
+		proxy["type"] = "ss"
+		proxy["cipher"] = method
+		proxy["password"] = password
+
+	default:
+		return nil
+	}
+
+	return proxy
+}
+
+// combinedToSingboxOutbound converts a CombinedConfig into a
+// sing-box 1.10+ compatible outbound map.
+func combinedToSingboxOutbound(idx int, c CombinedConfig) map[string]interface{} {
+	parsed, err := parseConfig(c.Config)
+	if err != nil {
+		return nil
+	}
+
+	name := fmt.Sprintf("clean-%d", idx+1)
+	if i := strings.Index(c.Config, "#"); i >= 0 && i < len(c.Config)-1 {
+		if frag, err := urlDecode(c.Config[i+1:]); err == nil && frag != "" {
+			name = frag
+		}
+	}
+
+	out := map[string]interface{}{
+		"tag":         name,
+		"server":      c.IP,
+		"server_port": c.Port,
+	}
+
+	switch parsed.Proto {
+	case "vless":
+		u := strings.TrimPrefix(c.Config, "vless://")
+		if i := strings.IndexAny(u, "#"); i >= 0 {
+			u = u[:i]
+		}
+		var query string
+		if i := strings.Index(u, "?"); i >= 0 {
+			query = u[i+1:]
+			u = u[:i]
+		}
+		at := strings.Index(u, "@")
+		if at < 0 {
+			return nil
+		}
+		uuid := u[:at]
+		params := parseQueryParams(query)
+
+		out["type"] = "vless"
+		out["uuid"] = uuid
+
+		network := params["type"]
+		if network == "" {
+			network = "tcp"
+		}
+		if network == "ws" {
+			transport := map[string]interface{}{"type": "ws"}
+			if p := params["path"]; p != "" {
+				transport["path"] = p
+			}
+			if h := params["host"]; h != "" {
+				transport["headers"] = map[string]string{"Host": h}
+			}
+			out["transport"] = transport
+		} else if network == "grpc" {
+			transport := map[string]interface{}{"type": "grpc"}
+			if sn := params["serviceName"]; sn != "" {
+				transport["service_name"] = sn
+			}
+			out["transport"] = transport
+		}
+
+		if params["security"] == "tls" || params["security"] == "reality" {
+			tls := map[string]interface{}{"enabled": true, "insecure": true}
+			if sni := firstNonEmpty(params["sni"], params["peer"], params["host"]); sni != "" {
+				tls["server_name"] = sni
+			}
+			if params["security"] == "reality" {
+				reality := map[string]interface{}{"enabled": true}
+				if pk := params["pbk"]; pk != "" {
+					reality["public_key"] = pk
+				}
+				if sid := params["sid"]; sid != "" {
+					reality["short_id"] = sid
+				}
+				tls["reality"] = reality
+			}
+			out["tls"] = tls
+		}
+
+	case "vmess":
+		body := strings.TrimPrefix(c.Config, "vmess://")
+		data, err := b64Decode(body)
+		if err != nil {
+			return nil
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil
+		}
+		uuid, _ := obj["id"].(string)
+		if uuid == "" {
+			return nil
+		}
+
+		out["type"] = "vmess"
+		out["uuid"] = uuid
+		out["security"] = "auto"
+		out["alter_id"] = 0
+		if aid, ok := obj["aid"].(float64); ok {
+			out["alter_id"] = int(aid)
+		}
+
+		network := "tcp"
+		if n, ok := obj["net"].(string); ok && n != "" {
+			network = n
+		}
+		if network == "ws" {
+			transport := map[string]interface{}{"type": "ws"}
+			if p, ok := obj["path"].(string); ok && p != "" {
+				transport["path"] = p
+			}
+			if h, ok := obj["host"].(string); ok && h != "" {
+				transport["headers"] = map[string]string{"Host": h}
+			}
+			out["transport"] = transport
+		} else if network == "grpc" {
+			transport := map[string]interface{}{"type": "grpc"}
+			if sn, ok := obj["path"].(string); ok && sn != "" {
+				transport["service_name"] = sn
+			}
+			out["transport"] = transport
+		}
+
+		if tls, ok := obj["tls"].(string); ok && tls == "tls" {
+			tlsOut := map[string]interface{}{"enabled": true, "insecure": true}
+			if sni, ok := obj["sni"].(string); ok && sni != "" {
+				tlsOut["server_name"] = sni
+			} else if host, ok := obj["host"].(string); ok && host != "" {
+				tlsOut["server_name"] = host
+			}
+			out["tls"] = tlsOut
+		}
+
+	case "trojan":
+		u := strings.TrimPrefix(c.Config, "trojan://")
+		if i := strings.IndexAny(u, "#"); i >= 0 {
+			u = u[:i]
+		}
+		var query string
+		if i := strings.Index(u, "?"); i >= 0 {
+			query = u[i+1:]
+			u = u[:i]
+		}
+		at := strings.Index(u, "@")
+		if at < 0 {
+			return nil
+		}
+		password, err := urlDecode(u[:at])
+		if err != nil {
+			password = u[:at]
+		}
+		params := parseQueryParams(query)
+
+		out["type"] = "trojan"
+		out["password"] = password
+
+		tlsOut := map[string]interface{}{"enabled": true, "insecure": true}
+		if sni := firstNonEmpty(params["sni"], params["peer"], params["host"]); sni != "" {
+			tlsOut["server_name"] = sni
+		}
+		out["tls"] = tlsOut
+
+		if params["type"] == "ws" {
+			transport := map[string]interface{}{"type": "ws"}
+			if params["path"] != "" {
+				transport["path"] = params["path"]
+			}
+			if params["host"] != "" {
+				transport["headers"] = map[string]string{"Host": params["host"]}
+			}
+			out["transport"] = transport
+		}
+
+	case "ss":
+		body := strings.TrimPrefix(c.Config, "ss://")
+		if i := strings.Index(body, "#"); i >= 0 {
+			body = body[:i]
+		}
+		var method, password string
+		if at := strings.Index(body, "@"); at >= 0 {
+			userinfo := body[:at]
+			if dec, err := b64Decode(userinfo); err == nil {
+				s := string(dec)
+				if i := strings.Index(s, ":"); i >= 0 {
+					method = s[:i]
+					password = s[i+1:]
+				}
+			} else if i := strings.Index(userinfo, ":"); i >= 0 {
+				method = userinfo[:i]
+				password = userinfo[i+1:]
+			}
+		} else {
+			dec, err := b64Decode(body)
+			if err != nil {
+				return nil
+			}
+			s := string(dec)
+			at := strings.LastIndex(s, "@")
+			if at < 0 {
+				return nil
+			}
+			userinfo := s[:at]
+			if i := strings.Index(userinfo, ":"); i >= 0 {
+				method = userinfo[:i]
+				password = userinfo[i+1:]
+			}
+		}
+		if method == "" || password == "" {
+			return nil
+		}
+
+		out["type"] = "shadowsocks"
+		out["method"] = method
+		out["password"] = password
+
+	default:
+		return nil
+	}
+
+	return out
+}
+
 func progressHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, getProgress())
 }
-
-var cancelMutex sync.Mutex
-var cancelClosed bool
-var scanInProgress atomic.Bool
 
 func cancelHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	cancelMutex.Lock()
-	if !cancelClosed {
-		v := scanCancel.Load()
-		if v != nil {
-			if ch, ok := v.(chan struct{}); ok && ch != nil {
-				select {
-				case <-ch:
-				default:
-					close(ch)
-				}
-				cancelClosed = true
-			}
-		}
+	state := currentScan.Load()
+	if state != nil && state.cancelCh != nil {
+		state.cancelOnce.Do(func() {
+			close(state.cancelCh)
+		})
 	}
-	cancelMutex.Unlock()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
@@ -2415,18 +2976,107 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 	case "clash":
 		var sb strings.Builder
 		sb.WriteString("proxies:\n")
+		written := 0
 		for i, c := range req.Configs {
-			sb.WriteString(fmt.Sprintf("  - name: \"clean-%d\"\n", i+1))
-			sb.WriteString(fmt.Sprintf("    type: vless\n"))
-			sb.WriteString(fmt.Sprintf("    server: %s\n", c.IP))
-			sb.WriteString(fmt.Sprintf("    port: %d\n", c.Port))
+			proxy := combinedToClashProxy(i, c)
+			if proxy == nil {
+				continue
+			}
+			written++
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", proxy["name"]))
+			sb.WriteString(fmt.Sprintf("    type: %s\n", proxy["type"]))
+			sb.WriteString(fmt.Sprintf("    server: %s\n", proxy["server"]))
+			sb.WriteString(fmt.Sprintf("    port: %d\n", proxy["port"]))
 			sb.WriteString("    udp: true\n")
-			sb.WriteString("    tls: true\n")
+
+			switch proxy["type"] {
+			case "vless":
+				sb.WriteString(fmt.Sprintf("    uuid: %s\n", proxy["uuid"]))
+				sb.WriteString("    cipher: auto\n")
+			case "vmess":
+				sb.WriteString(fmt.Sprintf("    uuid: %s\n", proxy["uuid"]))
+				sb.WriteString(fmt.Sprintf("    alterId: %v\n", proxy["alterId"]))
+				sb.WriteString("    cipher: auto\n")
+			case "trojan":
+				sb.WriteString(fmt.Sprintf("    password: %q\n", proxy["password"]))
+				sb.WriteString("    skip-cert-verify: true\n")
+			case "ss":
+				sb.WriteString(fmt.Sprintf("    cipher: %s\n", proxy["cipher"]))
+				sb.WriteString(fmt.Sprintf("    password: %q\n", proxy["password"]))
+			}
+
+			if tls, ok := proxy["tls"].(bool); ok && tls {
+				sb.WriteString("    tls: true\n")
+			}
+			if sni, ok := proxy["servername"].(string); ok && sni != "" {
+				sb.WriteString(fmt.Sprintf("    servername: %s\n", sni))
+			}
+			if sni, ok := proxy["sni"].(string); ok && sni != "" {
+				sb.WriteString(fmt.Sprintf("    sni: %s\n", sni))
+			}
+			if scv, ok := proxy["skip-cert-verify"].(bool); ok && scv {
+				sb.WriteString("    skip-cert-verify: true\n")
+			}
+			if network, ok := proxy["network"].(string); ok && network != "" && network != "tcp" {
+				sb.WriteString(fmt.Sprintf("    network: %s\n", network))
+			}
+			if ws, ok := proxy["ws-opts"].(map[string]interface{}); ok {
+				sb.WriteString("    ws-opts:\n")
+				if p, ok := ws["path"].(string); ok && p != "" {
+					sb.WriteString(fmt.Sprintf("      path: %s\n", p))
+				}
+				if h, ok := ws["headers"].(map[string]string); ok {
+					if host, ok := h["Host"]; ok {
+						sb.WriteString("      headers:\n")
+						sb.WriteString(fmt.Sprintf("        Host: %s\n", host))
+					}
+				}
+			}
+			if grpc, ok := proxy["grpc-opts"].(map[string]interface{}); ok {
+				sb.WriteString("    grpc-opts:\n")
+				if sn, ok := grpc["grpc-service-name"].(string); ok {
+					sb.WriteString(fmt.Sprintf("      grpc-service-name: %s\n", sn))
+				}
+			}
+			if reality, ok := proxy["reality-opts"].(map[string]interface{}); ok {
+				sb.WriteString("    reality-opts:\n")
+				if pk, ok := reality["public-key"].(string); ok {
+					sb.WriteString(fmt.Sprintf("      public-key: %s\n", pk))
+				}
+				if sid, ok := reality["short-id"].(string); ok {
+					sb.WriteString(fmt.Sprintf("      short-id: %s\n", sid))
+				}
+			}
+		}
+		if written == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "no valid configs to export",
+			})
+			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"content": sb.String(), "format": "clash"})
+
 	case "singbox":
-		out := map[string]interface{}{"outbounds": req.Configs}
-		writeJSON(w, http.StatusOK, out)
+		outbounds := make([]map[string]interface{}, 0, len(req.Configs))
+		for i, c := range req.Configs {
+			out := combinedToSingboxOutbound(i, c)
+			if out == nil {
+				continue
+			}
+			outbounds = append(outbounds, out)
+		}
+		if len(outbounds) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "no valid configs to export",
+			})
+			return
+		}
+		result := map[string]interface{}{
+			"log":       map[string]string{"level": "warn"},
+			"outbounds": outbounds,
+		}
+		writeJSON(w, http.StatusOK, result)
+
 	default:
 		writeJSON(w, http.StatusOK, map[string]interface{}{"configs": req.Configs})
 	}
@@ -2482,17 +3132,6 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 	_ = cmd.Start()
-}
-
-func showAlert(msg string) {
-	if runtime.GOOS != "windows" {
-		return
-	}
-	safe := strings.ReplaceAll(msg, "'", "\\'")
-	safe = strings.ReplaceAll(safe, "\r", "")
-	safe = strings.ReplaceAll(safe, "\n", "\\n")
-	script := fmt.Sprintf(`javascript:alert('%s');close();`, safe)
-	_ = exec.Command("mshta", script).Start()
 }
 
 var shutdownRequested = make(chan struct{}, 1)
@@ -2575,12 +3214,15 @@ func main() {
 	case <-shutdownRequested:
 	case <-sigCh:
 	}
-	// ذخیره تاریخچه روی هر مسیر خروج.
-	historyMutex.Lock()
-	hasHistory := len(historyData) > 0
-	historyMutex.Unlock()
-	if hasHistory {
-		saveHistory()
+	// Privacy: only persist history on exit when the last scan was
+	// explicitly allowed to do so.
+	if lastScanAllowedHistory.Load() {
+		historyMutex.Lock()
+		hasHistory := len(historyData) > 0
+		historyMutex.Unlock()
+		if hasHistory {
+			saveHistory()
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
