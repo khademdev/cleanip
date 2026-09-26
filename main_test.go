@@ -310,7 +310,7 @@ func TestB64Decode(t *testing.T) {
 	}{
 		{"standard with padding", "aGVsbG8=", "hello", false},
 		{"standard no padding needed", "aGVsbG8", "hello", false},
-		{"URL-safe dash", "a-b_c", "a\xfb\xbf\xc0", false},
+		{"URL-safe dash", "a-b_", "k\xe6\xff", false},
 		{"URL-safe underscore", "Pz8_Pg", "???>", false},
 		{"empty", "", "", false},
 		{"single char (invalid)", "A", "", true},
