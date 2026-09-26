@@ -6,7 +6,7 @@
 
 **Smart multi-stage Cloudflare clean-IP finder**
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/khademdev/cleanip?color=orange)](../../releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)]()
