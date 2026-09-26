@@ -10,6 +10,10 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/khademdev/cleanip?color=orange)](../../releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)]()
+[![Tests](https://img.shields.io/badge/tests-90%2B-success?logo=checkmarx&logoColor=white)]()
+[![Coverage](https://img.shields.io/badge/coverage-44%25-yellow)]()
+[![Race Detector](https://img.shields.io/badge/-race%20clean-blueviolet)]()
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)]()
 
 **ساخته‌شده با ❤️ توسط [میثم خادم شمس](https://github.com/khademdev)**
 
