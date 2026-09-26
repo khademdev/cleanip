@@ -857,6 +857,10 @@ func parseQueryParams(query string) map[string]string {
 	for _, kv := range strings.Split(query, "&") {
 		pair := strings.SplitN(kv, "=", 2)
 		if len(pair) == 2 {
+			if pair[0] == "" {
+				// Skip malformed entries like "=value" or bare "="
+				continue
+			}
 			if v, err := urlDecode(pair[1]); err == nil {
 				params[pair[0]] = v
 			} else {
@@ -1252,11 +1256,9 @@ func ssToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testS
 	}
 
 	var method, password string
-	var uriPort int
 
 	if at := strings.Index(body, "@"); at >= 0 {
 		userinfo := body[:at]
-		hostPort := body[at+1:]
 
 		if dec, err := b64Decode(userinfo); err == nil {
 			s := string(dec)
@@ -1268,12 +1270,6 @@ func ssToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testS
 			method = userinfo[:i]
 			password = userinfo[i+1:]
 		}
-
-		_, p, err := net.SplitHostPort(hostPort)
-		if err != nil {
-			return nil, err
-		}
-		uriPort, _ = strconv.Atoi(p)
 	} else {
 		dec, err := b64Decode(body)
 		if err != nil {
@@ -1285,24 +1281,22 @@ func ssToXrayJSON(uri, ip string, port, socksPort int, smartFragment bool, testS
 			return nil, fmt.Errorf("ss: no @")
 		}
 		userinfo := s[:at]
-		hostPort := s[at+1:]
 		if i := strings.Index(userinfo, ":"); i >= 0 {
 			method = userinfo[:i]
 			password = userinfo[i+1:]
 		}
-		_, p, err := net.SplitHostPort(hostPort)
-		if err != nil {
-			return nil, err
-		}
-		uriPort, _ = strconv.Atoi(p)
 	}
 
 	if method == "" {
 		return nil, fmt.Errorf("ss: no method")
 	}
-	if uriPort == 0 {
-		uriPort = port
-	}
+
+	// IMPORTANT: use the port argument, matching vless/trojan/vmess
+	// builders. The whole point of the Xray test is to validate the
+	// config against the newly-discovered clean IP:port — using the
+	// original URI's port would test against a stale endpoint and
+	// produce false negatives.
+	uriPort := port
 
 	proxyOutbound := map[string]interface{}{
 		"protocol": "shadowsocks",
